@@ -10,7 +10,12 @@ class ClienteService:
 
     @staticmethod
     def criar(dados):
-        return supabase.table("cliente").insert(dados).execute()
+        # Trata o dicionário dynamicamente: o que for texto vira caixa alta e remove espaços inúteis
+        dados_tratados = {
+            chave: valor.strip().upper() if isinstance(valor, str) else valor 
+            for chave, valor in dados.items()
+        }
+        return supabase.table("cliente").insert(dados_tratados).execute()
 
     @staticmethod
     def deletar(id_cliente):

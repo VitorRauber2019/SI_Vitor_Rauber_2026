@@ -12,8 +12,8 @@ class EstadoService:
     @staticmethod
     def criar(nome, uf, pais_id):
         data = {
-            "nome": nome,
-            "uf": uf.upper(),
+            "nome": nome.strip().upper(),
+            "uf": uf.strip().upper(),
             "pais_id": pais_id,
             "ativo": True
         }

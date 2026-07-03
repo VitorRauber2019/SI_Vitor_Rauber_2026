@@ -12,7 +12,7 @@ class CidadeService:
     @staticmethod
     def criar(nome, codigo_ibge, estado_id):
         data = {
-            "nome": nome,
+            "nome": nome.strip().upper(),
             "codigo_ibge": codigo_ibge,
             "estado_id": estado_id,
             "ativo": True

@@ -11,7 +11,12 @@ class ProdutoService:
 
     @staticmethod
     def criar(dados):
-        return supabase.table("produto").insert(dados).execute()
+        # Trata o dicionário dinamicamente: o que for texto vira caixa alta e remove espaços inúteis
+        dados_tratados = {
+            chave: valor.strip().upper() if isinstance(valor, str) else valor 
+            for chave, valor in dados.items()
+        }
+        return supabase.table("produto").insert(dados_tratados).execute()
 
     @staticmethod
     def deletar(id_prod):
