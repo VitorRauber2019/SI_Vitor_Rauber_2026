@@ -9,7 +9,7 @@ class CategoriaService:
 
     @staticmethod
     def criar(nome):
-        return supabase.table("categoria").insert({"categoria": nome, "ativo": True}).execute()
+        return supabase.table("categoria").insert({"categoria": nome.strip().upper(), "ativo": True}).execute()
 
     @staticmethod
     def deletar(id_cat):

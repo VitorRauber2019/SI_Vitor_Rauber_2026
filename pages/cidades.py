@@ -16,14 +16,13 @@ with st.expander("Nova Cidade"):
         with st.form("form_cidade"):
             col1, col2, col3 = st.columns([0.5, 0.2, 0.3])
             nome = col1.text_input("Cidade")
-            ibge = col2.text_input("Código IBGE")
             estado_label = col3.selectbox("Estado", options=list(estados_dict.keys()))
             
             submit = st.form_submit_button("Salvar Cidade")
             
             if submit:
                 if nome:
-                    CidadeService.criar(nome, ibge, estados_dict[estado_label])
+                    CidadeService.criar(nome, estados_dict[estado_label])
                     st.success(f"Cidade {nome} guardada!")
                     st.rerun()
                 else:
@@ -36,7 +35,7 @@ if cidades:
         col_dados, col_btn = st.columns([0.8, 0.2])
         est_info = cid.get('estado', {})
         label_estado = f"{est_info.get('nome')} - {est_info.get('uf')}"
-        col_dados.write(f"**{cid['nome']}** (IBGE: {cid['codigo_ibge'] or 'N/A'}) - {label_estado}")
+        col_dados.write(f"**{cid['nome']}**  - {label_estado}")
         
         if col_btn.button("Excluir", key=f"del_cid_{cid['id']}"):
             CidadeService.deletar(cid['id'])

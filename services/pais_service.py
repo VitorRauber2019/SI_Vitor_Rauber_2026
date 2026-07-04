@@ -12,10 +12,10 @@ class PaisService:
     @staticmethod
     def criar(nome, codigo, sigla, nacionalidade):
         data = {
-            "nome": nome,
+            "nome": nome.strip().upper(),
             "codigo": codigo,
-            "sigla": sigla,
-            "nacionalidade": nacionalidade,
+            "sigla": sigla.strip().upper(),
+            "nacionalidade": nacionalidade.strip().upper(),
             "ativo": True
         }
         return supabase.table("pais").insert(data).execute()

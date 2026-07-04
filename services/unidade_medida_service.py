@@ -9,7 +9,7 @@ class UnidadeMedidaService:
 
     @staticmethod
     def criar(nome, sigla):
-        return supabase.table("unidade_medida").insert({"unidade_medida": nome, "sigla": sigla}).execute()
+        return supabase.table("unidade_medida").insert({"unidade_medida": nome.strip().upper(), "sigla": sigla}).execute()
 
     @staticmethod
     def deletar(id_un):

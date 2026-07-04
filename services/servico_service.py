@@ -10,7 +10,7 @@ class ServicoService:
     @staticmethod
     def criar(nome, preco, duracao):
         data = {
-            "nome": nome, 
+            "nome": nome.strip().upper(), 
             "preco": preco, 
             "duracao_minutos": duracao, 
             "ativo": True

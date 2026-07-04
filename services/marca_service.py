@@ -9,7 +9,7 @@ class MarcaService:
 
     @staticmethod
     def criar(nome):
-        return supabase.table("marca").insert({"marca": nome, "ativo": True}).execute()
+        return supabase.table("marca").insert({"marca": nome.strip().upper(), "ativo": True}).execute()
 
     @staticmethod
     def deletar(id_marca):
