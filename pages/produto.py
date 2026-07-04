@@ -28,7 +28,6 @@ with st.expander("Cadastrar Novo Item", expanded=False):
         
         col6, col7 = st.columns(2)
         qtd_atual = col6.number_input("Quantidade em Estoque", min_value=0.0)
-        qtd_min = col7.number_input("Estoque Mínimo (Alerta)", min_value=0.0)
         
         if st.form_submit_button("Salvar Produto"):
             if produto and marcas and categorias and unidades:
@@ -41,7 +40,6 @@ with st.expander("Cadastrar Novo Item", expanded=False):
                     "valor_compra": v_compra,
                     "valor_venda": v_venda,
                     "quantidade_atual": qtd_atual,
-                    "quantidade_minima": qtd_min,
                     "ativo": True
                 }
                 try:
