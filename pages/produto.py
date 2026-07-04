@@ -14,8 +14,8 @@ unidades = {f"{u['unidade_medida']} ({u['sigla']})": u['id'] for u in UnidadeMed
 
 with st.expander("Cadastrar Novo Item", expanded=False):
     with st.form("form_produto", clear_on_submit=True):
-        produto = st.text_input("Nome do Produto (Ex: Shampoo Hidratação Profunda 1L)")
-        cod_barras = st.text_input("Código de Barras / Referência")
+        produto = st.text_input("Produto (Ex: Shampoo Hidratação Profunda 1L)")
+        cod_barras = st.text_input("Código de Barras")
         
         col1, col2, col3 = st.columns(3)
         marca_sel = col1.selectbox("Marca", options=list(marcas.keys()))
