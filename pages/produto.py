@@ -206,19 +206,18 @@ modo_edicao = st.session_state.produto_para_editar is not None
 titulo_formulario = "✏️ Editar Produto" if modo_edicao else "✨ Cadastrar Novo Item"
 
 with st.expander(titulo_formulario, expanded=modo_edicao):
-    # Definição dos valores padrão para os inputs de texto e numéricos
     prod_padrao = st.session_state.produto_para_editar["produto"] if modo_edicao else ""
     cod_padrao = st.session_state.produto_para_editar["codigo_barras"] if modo_edicao else ""
     v_compra_padrao = float(st.session_state.produto_para_editar["valor_compra"]) if modo_edicao else 0.0
     v_venda_padrao = float(st.session_state.produto_para_editar["valor_venda"]) if modo_edicao else 0.0
-    qtd_atual_padrao = float(st.session_state.produto_para_editar["quantidade_atual"]) if modo_edicao else 0.0
+    # 💡 MODIFICADO: Cast de float para int para a quantidade padrão de edição
+    qtd_atual_padrao = int(st.session_state.produto_para_editar["quantidade_atual"]) if modo_edicao else 0
 
     produto = st.text_input("Produto (Ex: Shampoo Hidratação Profunda 1L)", value=prod_padrao)
     cod_barras = st.text_input("Código de Barras", value=cod_padrao)
     
     col_m, col_c, col_u = st.columns(3)
     
-    # Seletores baseados em Dialog dinâmicos
     m_atual = st.session_state.marca_selecionada
     col_m.write("**Marca**")
     if col_m.button(m_atual["label"] if m_atual else "Marca", icon="🏷️", use_container_width=True):
@@ -231,17 +230,18 @@ with st.expander(titulo_formulario, expanded=modo_edicao):
         
     u_atual = st.session_state.unidade_selecionada
     col_u.write("**Unidade de Medida**")
-    if col_u.button(u_atual["label"] if u_atual else "Unidade de Mediada", icon="⚖️", use_container_width=True):
+    if col_u.button(u_atual["label"] if u_atual else "Unidade de Medida", icon="⚖️", use_container_width=True):
         gerenciar_unidades_modal()
     
     st.write("")
-    col4, col5, col6, col7 = st.columns(4)
+    col4, col5, col6 = st.columns(3)
     v_compra = col4.number_input("Custo de Compra (R$)", min_value=0.0, step=1.0, value=v_compra_padrao)
     v_venda = col5.number_input("Preço de Venda (R$)", min_value=0.0, step=1.0, value=v_venda_padrao)
-    qtd_atual = col6.number_input("Quantidade em Estoque", min_value=0.0, value=qtd_atual_padrao)
+    # 💡 MODIFICADO: min_value=0 e step=1 (valores inteiros) força o componente a operar estritamente como int
+    qtd_atual = col6.number_input("Quantidade em Estoque", min_value=0, step=1, value=qtd_atual_padrao)
     
     st.write("")
-    col_btn_salvar, col_btn_cancelar, _ = st.columns([0.3, 0.2, 0.7])
+    col_btn_salvar, col_btn_cancelar, _ = st.columns([0.15, 0.15, 0.7])
     
     novo_prod = {
         "produto": produto,
@@ -251,14 +251,14 @@ with st.expander(titulo_formulario, expanded=modo_edicao):
         "unidade_medida_id": u_atual["id"] if u_atual else None,
         "valor_compra": v_compra,
         "valor_venda": v_venda,
-        "quantidade_atual": qtd_atual,
+        "quantidade_atual": int(qtd_atual), # 💡 MODIFICADO: Garantia extra forçando int no dicionário
     }
 
     if modo_edicao:
         if col_btn_salvar.button("Salvar Alterações", type="primary", use_container_width=True):
             if produto and m_atual and c_atual and u_atual:
                 ProdutoService.editar(st.session_state.produto_para_editar["id"], novo_prod)
-                st.success("Produto atualizado com sucesso!")
+                st.success("Produto updated!")
                 st.session_state.produto_para_editar = None
                 st.session_state.marca_selecionada = None
                 st.session_state.categoria_selecionada = None
@@ -300,14 +300,14 @@ if produtos:
         c_rel = p.get('categoria', {})
         u_rel = p.get('unidade_medida', {})
         
-        
         dados_grid.append({
             "id": p['id'],
             "Produto": p['produto'],
             "Código de Barras": p.get('codigo_barras', 'N/A'),
             "Marca": m_rel.get('marca', 'N/A') if m_rel else 'N/A',
             "Categoria": c_rel.get('categoria', 'N/A') if c_rel else 'N/A',
-            "Estoque": f"{p['quantidade_atual']} {u_rel.get('sigla', '') if u_rel else ''}",
+            # 💡 MODIFICADO: Cast para int garante exibição limpa sem ".0" na tabela
+            "Estoque": f"{int(p['quantidade_atual'])} {u_rel.get('sigla', '') if u_rel else ''}", 
             "Preço Venda": f"R$ {p['valor_venda']:.2f}",
             "Status": "🟢 Ativo" if p.get('ativo', True) else "🔴 Desativado",
             "marca_id": p.get('marca_id'),
@@ -348,7 +348,7 @@ if produtos:
                 "codigo_barras": prod_escolhido['Código de Barras'],
                 "valor_compra": prod_escolhido['valor_compra'],
                 "valor_venda": float(prod_escolhido['Preço Venda'].replace("R$ ", "")),
-                "quantidade_atual": float(prod_escolhido['Estoque'].split()[0])
+                "quantidade_atual": int(prod_escolhido['Estoque'].split()[0])
             }
             # Popula as flags das tabelas auxiliares para carregar nos botões de Popover
             st.session_state.marca_selecionada = {"id": int(prod_escolhido['marca_id']), "label": prod_escolhido['Marca']}
