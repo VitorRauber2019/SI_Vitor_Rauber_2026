@@ -1,55 +1,63 @@
-from database.connection import get_supabase
+import os
+from dotenv import load_dotenv
+from supabase import Client, create_client
 
-supabase = get_supabase()
+load_dotenv()
+
+url = os.getenv("SUPABASE_URL")
+key = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(url, key) if url and key else None
+
 
 class CidadeService:
-    @staticmethod
-    def listar_todos(apenas_ativos=True):
-        # Inicia a consulta trazendo os dados da cidade e do estado
-        query = supabase.table("cidade").select("*, estado(nome, uf)")
-        
-        # Se o parâmetro for True, filtra apenas os ativos. 
-        # Se for False, traz tudo (útil para telas de lixeira ou administração)
+
+    @classmethod
+    def listar_todos(cls, apenas_ativos: bool = True):
+        """Lista todas as cidades com os dados aninhados do Estado e do País."""
+        if not supabase:
+            return []
+
+        # Traz Cidade + Estado + País vinculado ao Estado
+        query = supabase.table("cidade").select("*, estado(*, pais(*))")
+
         if apenas_ativos:
             query = query.eq("ativo", True)
-            
+
         response = query.order("nome").execute()
-        return response.data
+        return response.data if response.data else []
 
-    @staticmethod
-    def criar(nome, estado_id):
-        data = {
-            "nome": nome.strip().upper(),
-            "estado_id": estado_id,
-            "ativo": True
-        }
-        return supabase.table("cidade").insert(data).execute()
+    @classmethod
+    def criar(cls, nome: str, estado_id: int):
+        """Cria uma nova cidade vinculada a um estado."""
+        data = {"nome": nome, "estado_id": estado_id, "ativo": True}
+        response = supabase.table("cidade").insert(data).execute()
+        return response.data[0] if response.data else None
 
-    @staticmethod
-    def editar(id_cidade, nome, estado_id):
-        data = {
-            "nome": nome.strip().upper(),
-            "estado_id": estado_id
-        }
-        return supabase.table("cidade").update(data).eq("id", id_cidade).execute()
+    @classmethod
+    def editar(cls, id_cidade: int, nome: str, estado_id: int):
+        """Edita o nome ou o estado associado a uma cidade existente."""
+        data = {"nome": nome, "estado_id": estado_id}
+        response = (
+            supabase.table("cidade")
+            .update(data)
+            .eq("id", id_cidade)
+            .execute()
+        )
+        return response.data[0] if response.data else None
 
-    @staticmethod
-    def alternar_status(id_cidade):
-        # 1. Busca o status atual da flag 'ativo' no banco de dados
-        busca = supabase.table("cidade").select("ativo").eq("id", id_cidade).execute()
-        
-        if busca.data:
-            status_atual = busca.data[0]["ativo"]
-            
-            # 2. Inverte o status usando o operador 'not'
-            # Se era True (ativo), vira False (deletado). Se era False, vira True (reativado).
-            novo_status = not status_atual
-            
-            # 3. Atualiza o banco de dados com o novo estado invertido
-            return (
-                supabase.table("cidade")
-                .update({"ativo": novo_status})
-                .eq("id", id_cidade)
-                .execute()
-            )
-        return busca
+    @classmethod
+    def alternar_status(cls, id_cidade: int):
+        """Alterna o status de ativo/desativado (Soft Delete)."""
+        cidade = (
+            supabase.table("cidade")
+            .select("ativo")
+            .eq("id", id_cidade)
+            .single()
+            .execute()
+        )
+
+        if cidade.data:
+            novo_status = not cidade.data.get("ativo", True)
+            supabase.table("cidade").update({"ativo": novo_status}).eq(
+                "id", id_cidade
+            ).execute()
