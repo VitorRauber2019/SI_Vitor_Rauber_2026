@@ -7,7 +7,6 @@ from supabase import Client, create_client
 from services.cidade_service import CidadeService
 from services.condicaopag_service import CondicaoPagamentoService
 from services.estado_service import EstadoService
-from services.fornecedor_service import FornecedorService
 from services.pais_service import PaisService
 from services.transportadora_service import TransportadoraService
 
@@ -30,38 +29,28 @@ def init_supabase() -> Client:
 
 
 supabase = init_supabase()
-service = FornecedorService(supabase)
-transp_service = TransportadoraService(supabase)
+service = TransportadoraService(supabase)
 
-st.set_page_config(page_title="Novo Fornecedor", layout="wide")
+st.set_page_config(page_title="Nova Transportadora", layout="wide")
 
 # --- INICIALIZAÇÃO DO SESSION STATE ---
-if "cidade_fornecedor_selecionada" not in st.session_state:
-    st.session_state.cidade_fornecedor_selecionada = None
+if "cidade_transportadora_selecionada" not in st.session_state:
+    st.session_state.cidade_transportadora_selecionada = None
 
-if "estado_fornecedor_selecionado" not in st.session_state:
-    st.session_state.estado_fornecedor_selecionado = None
+if "estado_transportadora_selecionado" not in st.session_state:
+    st.session_state.estado_transportadora_selecionado = None
 
-if "pais_fornecedor_selecionado" not in st.session_state:
-    st.session_state.pais_fornecedor_selecionado = None
-
-if "transportadora_fornecedor_selecionada" not in st.session_state:
-    st.session_state.transportadora_fornecedor_selecionada = None
-
-if "cidade_modal_transp_selecionada" not in st.session_state:
-    st.session_state.cidade_modal_transp_selecionada = None
-
-if "estado_modal_transp_selecionado" not in st.session_state:
-    st.session_state.estado_modal_transp_selecionado = None
-
-if "pais_modal_transp_selecionado" not in st.session_state:
-    st.session_state.pais_modal_transp_selecionado = None
+if "pais_transportadora_selecionado" not in st.session_state:
+    st.session_state.pais_transportadora_selecionado = None
 
 if "emails" not in st.session_state:
     st.session_state.emails = []
 
 if "telefones" not in st.session_state:
     st.session_state.telefones = []
+
+if "veiculos" not in st.session_state:
+    st.session_state.veiculos = []
 
 # --- CARREGAR CONDIÇÕES DE PAGAMENTO DO BANCO DE DADOS ---
 condicoes_db = CondicaoPagamentoService.listar_todas(apenas_ativos=True)
@@ -76,7 +65,7 @@ opcoes_condicao_pagamento = (
 )
 
 
-# --- COMPONENTES AUXILIARES DE LOCALIZAÇÃO E TRANSPORTADORA (POPOVERS E MODAIS) ---
+# --- COMPONENTES AUXILIARES DE LOCALIZAÇÃO (POPOVERS E MODAIS) ---
 
 
 def renderizar_gerenciador_paises(prefix="padrao"):
@@ -124,16 +113,10 @@ def renderizar_gerenciador_paises(prefix="padrao"):
                         use_container_width=True,
                         key=f"{prefix}_btn_sel_p",
                     ):
-                        if "modal_transp" in prefix:
-                            st.session_state.pais_modal_transp_selecionado = {
-                                "id": int(escolhido["id"]),
-                                "label": escolhido["País"],
-                            }
-                        else:
-                            st.session_state.pais_fornecedor_selecionado = {
-                                "id": int(escolhido["id"]),
-                                "label": escolhido["País"],
-                            }
+                        st.session_state.pais_transportadora_selecionado = {
+                            "id": int(escolhido["id"]),
+                            "label": escolhido["País"],
+                        }
                         st.rerun()
 
     with tab_cad:
@@ -199,39 +182,30 @@ def renderizar_gerenciador_estados(prefix="padrao"):
                         use_container_width=True,
                         key=f"{prefix}_btn_sel_e",
                     ):
-                        if "modal_transp" in prefix:
-                            st.session_state.estado_modal_transp_selecionado = {
-                                "id": int(escolhido["id"]),
-                                "label": f"{escolhido['Estado']} ({escolhido['UF']})",
+                        st.session_state.estado_transportadora_selecionado = {
+                            "id": int(escolhido["id"]),
+                            "label": f"{escolhido['Estado']} ({escolhido['UF']})",
+                        }
+                        if escolhido["País"] != "N/A":
+                            st.session_state.pais_transportadora_selecionado = {
+                                "id": (
+                                    int(escolhido["pais_id"])
+                                    if pd.notna(escolhido.get("pais_id"))
+                                    else None
+                                ),
+                                "label": escolhido["País"],
                             }
-                            if escolhido["País"] != "N/A":
-                                st.session_state.pais_modal_transp_selecionado = {
-                                    "id": int(escolhido["pais_id"]) if pd.notna(escolhido.get("pais_id")) else None,
-                                    "label": escolhido["País"],
-                                }
-                        else:
-                            st.session_state.estado_fornecedor_selecionado = {
-                                "id": int(escolhido["id"]),
-                                "label": f"{escolhido['Estado']} ({escolhido['UF']})",
-                            }
-                            if escolhido["País"] != "N/A":
-                                st.session_state.pais_fornecedor_selecionado = {
-                                    "id": int(escolhido["pais_id"]) if pd.notna(escolhido.get("pais_id")) else None,
-                                    "label": escolhido["País"],
-                                }
                         st.rerun()
 
     with tab_cad:
         with st.container(border=True):
             st.write("##### Novo Estado")
             nome_e = st.text_input("Nome do Estado", key=f"{prefix}_cad_e_nome")
-            uf_e = st.text_input("UF", max_chars=2, key=f"{prefix}_cad_e_uf").upper()
+            uf_e = st.text_input(
+                "UF", max_chars=2, key=f"{prefix}_cad_e_uf"
+            ).upper()
 
-            p_atual = (
-                st.session_state.pais_modal_transp_selecionado
-                if "modal_transp" in prefix
-                else st.session_state.pais_fornecedor_selecionado
-            )
+            p_atual = st.session_state.pais_transportadora_selecionado
             txt_p = p_atual["label"] if p_atual else "Selecionar País..."
 
             st.write("**País Pertencente**")
@@ -252,13 +226,14 @@ def renderizar_gerenciador_estados(prefix="padrao"):
                     st.error("Preencha Nome, UF e selecione o País.")
 
 
-def renderizar_gerenciador_cidades(prefix="padrao"):
-    """Gerenciador de Cidades dentro de Popovers."""
+@st.dialog("Gerenciar Cidades", width="large")
+def gerenciar_cidades_modal():
+    """Modal Principal para selecionar ou cadastrar Cidades, Estados e Países."""
     tab_sel, tab_cad = st.tabs(["🔍 Selecionar Cidade", "➕ Nova Cidade"])
 
     with tab_sel:
         exibir_desat = st.checkbox(
-            "👁️ Exibir cidades desativadas", value=False, key=f"{prefix}_chk_c_desat"
+            "👁️ Exibir cidades desativadas", value=False, key="chk_c_desat"
         )
         cidades = CidadeService.listar_todos(apenas_ativos=not exibir_desat)
 
@@ -293,7 +268,7 @@ def renderizar_gerenciador_cidades(prefix="padrao"):
                 hide_index=True,
                 selection_mode="single-row",
                 on_select="rerun",
-                key=f"{prefix}_grid_cidades",
+                key="grid_cidades_modal",
             )
 
             if event.selection.rows:
@@ -302,48 +277,36 @@ def renderizar_gerenciador_cidades(prefix="padrao"):
 
                 if escolhida["Status"] == "🟢 Ativo":
                     if st.button(
-                        "🎯 Selecionar Cidade",
+                        "🎯 Selecionar Cidade para Transportadora",
                         type="primary",
                         use_container_width=True,
-                        key=f"{prefix}_btn_sel_cidade",
+                        key="btn_sel_cidade_transportadora",
                     ):
-                        if "modal_transp" in prefix:
-                            st.session_state.cidade_modal_transp_selecionada = {
-                                "id": int(escolhida["id"]),
-                                "nome": escolhida["Cidade"],
-                                "estado": escolhida["Estado"],
-                                "pais": escolhida["País"],
-                            }
-                        else:
-                            st.session_state.cidade_fornecedor_selecionada = {
-                                "id": int(escolhida["id"]),
-                                "nome": escolhida["Cidade"],
-                                "estado": escolhida["Estado"],
-                                "pais": escolhida["País"],
-                            }
+                        st.session_state.cidade_transportadora_selecionada = {
+                            "id": int(escolhida["id"]),
+                            "nome": escolhida["Cidade"],
+                            "estado": escolhida["Estado"],
+                            "pais": escolhida["País"],
+                        }
                         st.rerun()
 
     with tab_cad:
         with st.container(border=True):
             st.write("##### Nova Cidade")
-            nome_c = st.text_input("Nome da Cidade", key=f"{prefix}_cad_cidade_nome")
+            nome_c = st.text_input("Nome da Cidade", key="cad_cidade_nome")
 
-            e_atual = (
-                st.session_state.estado_modal_transp_selecionado
-                if "modal_transp" in prefix
-                else st.session_state.estado_fornecedor_selecionado
-            )
+            e_atual = st.session_state.estado_transportadora_selecionado
             txt_e = e_atual["label"] if e_atual else "Selecionar Estado..."
 
             st.write("**Estado Pertencente**")
             with st.popover(txt_e, icon="📍", use_container_width=True):
-                renderizar_gerenciador_estados(prefix=f"{prefix}_nest_e")
+                renderizar_gerenciador_estados(prefix="cad_cidade_nest_e")
 
             if st.button(
                 "Salvar Cidade",
                 type="primary",
                 use_container_width=True,
-                key=f"{prefix}_btn_save_cidade",
+                key="btn_save_cidade",
             ):
                 if nome_c and e_atual:
                     res = CidadeService.criar(
@@ -351,170 +314,28 @@ def renderizar_gerenciador_cidades(prefix="padrao"):
                     )
                     st.success("Cidade cadastrada!")
 
-                    p_sel = (
-                        st.session_state.pais_modal_transp_selecionado
-                        if "modal_transp" in prefix
-                        else st.session_state.pais_fornecedor_selecionado
-                    )
+                    p_sel = st.session_state.pais_transportadora_selecionado
                     pais_nome = p_sel["label"] if p_sel else "N/A"
 
-                    d_cid = {
+                    st.session_state.cidade_transportadora_selecionada = {
                         "id": res.get("id") if isinstance(res, dict) else None,
                         "nome": nome_c,
                         "estado": e_atual["label"],
                         "pais": pais_nome,
                     }
-
-                    if "modal_transp" in prefix:
-                        st.session_state.cidade_modal_transp_selecionada = d_cid
-                    else:
-                        st.session_state.cidade_fornecedor_selecionada = d_cid
-
                     st.rerun()
                 else:
                     st.error("Informe o Nome da Cidade e selecione o Estado.")
 
 
-@st.dialog("Gerenciar Cidades", width="large")
-def gerenciar_cidades_modal():
-    """Modal Principal para selecionar ou cadastrar Cidades, Estados e Países."""
-    renderizar_gerenciador_cidades(prefix="modal_cidade_direto")
+# --- TELA PRINCIPAL: FORMULÁRIO DE CADASTRO DE TRANSPORTADORA ---
 
+st.caption("Transportadoras / Nova Transportadora")
+st.title("Nova Transportadora")
 
-@st.dialog("Gerenciar Transportadoras", width="large")
-def gerenciar_transportadoras_modal():
-    """Modal Principal para selecionar ou cadastrar Transportadoras."""
-    tab_sel, tab_cad = st.tabs(["🔍 Selecionar Transportadora", "➕ Nova Transportadora"])
+cidade_sel = st.session_state.cidade_transportadora_selecionada
 
-    with tab_sel:
-        exibir_desat = st.checkbox(
-            "👁️ Exibir desativadas", value=False, key="chk_t_desat"
-        )
-        transportadoras = transp_service.listar_todos(apenas_ativos=not exibir_desat)
-
-        if not transportadoras:
-            st.info("Nenhuma transportadora cadastrada.")
-        else:
-            data = []
-            for t in transportadoras:
-                data.append({
-                    "id": t["id"],
-                    "Razão Social": t.get("razao_social", ""),
-                    "Nome Fantasia": t.get("nome_fantasia", ""),
-                    "CNPJ/CPF": t.get("cnpj_cpf", ""),
-                    "Cidade": t.get("cidade", "N/A"),
-                    "Estado": t.get("estado", "N/A"),
-                    "Status": (
-                        "🟢 Ativo" if t.get("status", True) else "🔴 Desativado"
-                    ),
-                })
-            df_t = pd.DataFrame(data)
-            event = st.dataframe(
-                df_t,
-                use_container_width=True,
-                hide_index=True,
-                selection_mode="single-row",
-                on_select="rerun",
-                key="grid_transportadoras_modal",
-            )
-
-            if event.selection.rows:
-                idx = event.selection.rows[0]
-                escolhida = df_t.iloc[idx]
-
-                if escolhida["Status"] == "🟢 Ativo":
-                    if st.button(
-                        "🎯 Selecionar Transportadora para Fornecedor",
-                        type="primary",
-                        use_container_width=True,
-                        key="btn_sel_transp_fornecedor",
-                    ):
-                        st.session_state.transportadora_fornecedor_selecionada = {
-                            "id": int(escolhida["id"]),
-                            "nome": escolhida["Razão Social"],
-                        }
-                        st.rerun()
-
-    with tab_cad:
-        with st.container(border=True):
-            st.write("##### Nova Transportadora")
-            
-            c_tipo, c_status = st.columns([2, 1])
-            t_tipo = c_tipo.selectbox("Tipo de Pessoa *", ["Jurídica", "Física"], key="cad_t_tipo")
-            t_status = c_status.toggle("Ativo", value=True, key="cad_t_status")
-
-            c_rs, c_nf = st.columns(2)
-            t_razao = c_rs.text_input("Razão Social *", key="cad_t_razao")
-            t_fantasia = c_nf.text_input("Nome Fantasia", key="cad_t_fantasia")
-
-            c_doc, c_ie = st.columns(2)
-            t_doc_label = "CNPJ *" if t_tipo == "Jurídica" else "CPF *"
-            t_cnpj = c_doc.text_input(t_doc_label, placeholder="00.000.000/0000-00", key="cad_t_doc")
-            t_ie = c_ie.text_input("Inscrição Estadual", placeholder="Número da I.E.", key="cad_t_ie")
-
-            # LOCALIZAÇÃO COMPLETA DA TRANSPORTADORA
-            c_sel_t = st.session_state.cidade_modal_transp_selecionada
-
-            c_pais, c_uf, c_cid, c_btn_geo = st.columns([1, 1, 1, 0.8])
-            with c_pais:
-                val_p = c_sel_t.get("pais", "Brasil") if c_sel_t else "Brasil"
-                t_pais = st.text_input("País *", value=val_p, key="cad_t_pais")
-            with c_uf:
-                val_e = c_sel_t.get("estado", "") if c_sel_t else ""
-                t_estado = st.text_input("Estado *", value=val_e, placeholder="Ex: São Paulo (SP)", key="cad_t_estado")
-            with c_cid:
-                val_c = c_sel_t.get("nome", "") if c_sel_t else ""
-                t_cidade = st.text_input("Cidade *", value=val_c, placeholder="Selecione ou digite...", key="cad_t_cidade")
-            with c_btn_geo:
-                st.write("**Localização**")
-                txt_pop_c = "🏙️ Buscar/Criar"
-                with st.popover(txt_pop_c, icon="🏙️", use_container_width=True):
-                    renderizar_gerenciador_cidades(prefix="modal_transp")
-
-            if st.button(
-                "Salvar e Selecionar Transportadora",
-                type="primary",
-                use_container_width=True,
-                key="btn_save_transp_modal",
-            ):
-                if t_razao and t_cnpj and t_cidade:
-                    dados_t = {
-                        "tipo_pessoa": t_tipo,
-                        "status": t_status,
-                        "razao_social": t_razao,
-                        "nome_fantasia": t_fantasia,
-                        "cnpj_cpf": t_cnpj,
-                        "inscricao_estadual": t_ie,
-                        "pais": t_pais,
-                        "estado": t_estado,
-                        "cidade": t_cidade,
-                        "cidade_id": c_sel_t.get("id") if c_sel_t and "id" in c_sel_t else None,
-                    }
-                    sucesso, res = transp_service.criar(dados_t)
-
-                    if sucesso:
-                        st.success("Transportadora cadastrada com sucesso!")
-                        st.session_state.transportadora_fornecedor_selecionada = {
-                            "id": res.get("id") if isinstance(res, dict) else None,
-                            "nome": t_razao,
-                        }
-                        st.session_state.cidade_modal_transp_selecionada = None
-                        st.rerun()
-                    else:
-                        st.error(f"Erro ao salvar transportadora: {res}")
-                else:
-                    st.error("Preencha Razão Social, CNPJ/CPF e Cidade.")
-
-
-# --- TELA PRINCIPAL: FORMULÁRIO DE CADASTRO DE FORNECEDOR ---
-
-st.caption("Fornecedores / Novo Fornecedor")
-st.title("Novo Fornecedor")
-
-cidade_sel = st.session_state.cidade_fornecedor_selecionada
-transp_sel = st.session_state.transportadora_fornecedor_selecionada
-
-with st.form("form_fornecedor", clear_on_submit=False):
+with st.form("form_transportadora", clear_on_submit=False):
 
     # Tipo de Pessoa e Status
     col_tipo, col_status, col_empty = st.columns([2, 1, 5])
@@ -561,6 +382,15 @@ with st.form("form_fornecedor", clear_on_submit=False):
     with col_num:
         numero = st.text_input("Número", placeholder="Nº")
 
+    # Complemento e Bairro
+    col_comp, col_bairro = st.columns([1, 1])
+    with col_comp:
+        complemento = st.text_input(
+            "Complemento", placeholder="Apto, bloco, sala..."
+        )
+    with col_bairro:
+        bairro = st.text_input("Bairro", placeholder="Bairro")
+
     # Localização (País, Estado, Cidade)
     col_pais, col_uf, col_cidade, col_btn_geo = st.columns([1, 1, 1, 0.8])
 
@@ -573,7 +403,7 @@ with st.form("form_fornecedor", clear_on_submit=False):
     with col_uf:
         val_estado = cidade_sel.get("estado", "") if cidade_sel else ""
         estado = st.text_input(
-            "Estado *", value=val_estado, placeholder="Ex: Alto Paraná (AP)"
+            "Estado *", value=val_estado, placeholder="Ex: São Paulo (SP)"
         )
 
     with col_cidade:
@@ -590,17 +420,8 @@ with st.form("form_fornecedor", clear_on_submit=False):
             "🏙️ Buscar / Criar", use_container_width=True
         )
 
-    # Complemento e Bairro
-    col_comp, col_bairro = st.columns([1, 1])
-    with col_comp:
-        complemento = st.text_input(
-            "Complemento", placeholder="Apto, bloco, sala..."
-        )
-    with col_bairro:
-        bairro = st.text_input("Bairro", placeholder="Bairro")
-
-    # Condição de Pagamento, Limite de Crédito e Transportadora (com Botão Modal)
-    col_cond, col_limite, col_transp, col_btn_transp = st.columns([1, 1, 1, 0.8])
+    # Condição de Pagamento e Limite de Crédito
+    col_cond, col_limite = st.columns([1, 1])
     with col_cond:
         condicao_pagamento = st.selectbox(
             "Condição de Pagamento *",
@@ -610,24 +431,12 @@ with st.form("form_fornecedor", clear_on_submit=False):
         limite_credito = st.number_input(
             "Limite de Crédito (R$) *", min_value=0.0, value=0.0, step=100.0
         )
-    with col_transp:
-        val_transp = transp_sel.get("nome", "") if transp_sel else ""
-        transportadora = st.text_input(
-            "Transportadora",
-            value=val_transp,
-            placeholder="Selecione uma transportadora...",
-        )
-    with col_btn_transp:
-        st.write("**Transportadora**")
-        btn_abrir_modal_transp = st.form_submit_button(
-            "🚚 Buscar / Criar", use_container_width=True
-        )
 
     st.markdown("---")
 
     # Seção de E-mails
     st.subheader("E-MAILS")
-    col_email_input, col_btn_email = st.columns([4, 1])
+    col_email_input, _ = st.columns([4, 1])
     with col_email_input:
         novo_email = st.text_input(
             "Adicionar E-mail",
@@ -643,7 +452,7 @@ with st.form("form_fornecedor", clear_on_submit=False):
 
     # Seção de Telefones
     st.subheader("TELEFONES")
-    col_tel_input, col_btn_tel = st.columns([4, 1])
+    col_tel_input, _ = st.columns([4, 1])
     with col_tel_input:
         novo_tel = st.text_input(
             "Adicionar Telefone",
@@ -656,6 +465,22 @@ with st.form("form_fornecedor", clear_on_submit=False):
             st.text(f"• {tel}")
     else:
         st.caption("Nenhum telefone cadastrado.")
+
+    # Seção de Veículos
+    st.subheader("VEÍCULOS")
+    col_veic_input, _ = st.columns([4, 1])
+    with col_veic_input:
+        novo_veiculo = st.text_input(
+            "Adicionar Veículo",
+            placeholder="Placa / Modelo / RNTRC",
+            key="input_veiculo",
+        )
+
+    if st.session_state.veiculos:
+        for v in st.session_state.veiculos:
+            st.text(f"• {v}")
+    else:
+        st.caption("Nenhum veículo vinculado.")
 
     # Observações
     st.subheader("Observações")
@@ -678,12 +503,9 @@ with st.form("form_fornecedor", clear_on_submit=False):
             "Cancelar", use_container_width=True
         )
 
-# Ações para abrir os Modais Geográfico e de Transportadoras
+# Ação para abrir o modal geográfico
 if btn_abrir_modal_geo:
     gerenciar_cidades_modal()
-
-if btn_abrir_modal_transp:
-    gerenciar_transportadoras_modal()
 
 # Lógica de Gravação no Supabase
 if btn_salvar:
@@ -691,6 +513,8 @@ if btn_salvar:
         st.session_state.emails.append(novo_email)
     if novo_tel and novo_tel not in st.session_state.telefones:
         st.session_state.telefones.append(novo_tel)
+    if novo_veiculo and novo_veiculo not in st.session_state.veiculos:
+        st.session_state.veiculos.append(novo_veiculo)
 
     if not razao_social or not cnpj_cpf or not cidade:
         st.error(
@@ -717,29 +541,26 @@ if btn_salvar:
             "bairro": bairro,
             "condicao_pagamento": condicao_pagamento,
             "limite_credito": limite_credito,
-            "transportadora": transportadora,
-            "transportadora_id": (
-                transp_sel["id"] if transp_sel and "id" in transp_sel else None
-            ),
             "emails": st.session_state.emails,
             "telefones": st.session_state.telefones,
+            "veiculos": st.session_state.veiculos,
             "observacoes": observacoes,
         }
 
         sucesso, resultado = service.criar(dados)
 
         if sucesso:
-            st.success("Fornecedor cadastrado com sucesso!")
+            st.success("Transportadora cadastrada com sucesso!")
             st.session_state.emails = []
             st.session_state.telefones = []
-            st.session_state.cidade_fornecedor_selecionada = None
-            st.session_state.transportadora_fornecedor_selecionada = None
+            st.session_state.veiculos = []
+            st.session_state.cidade_transportadora_selecionada = None
         else:
-            st.error(f"Erro ao salvar fornecedor: {resultado}")
+            st.error(f"Erro ao salvar transportadora: {resultado}")
 
 if btn_cancelar:
     st.info("Cadastro cancelado.")
     st.session_state.emails = []
     st.session_state.telefones = []
-    st.session_state.cidade_fornecedor_selecionada = None
-    st.session_state.transportadora_fornecedor_selecionada = None
+    st.session_state.veiculos = []
+    st.session_state.cidade_transportadora_selecionada = None
