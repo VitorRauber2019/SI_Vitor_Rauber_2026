@@ -6,8 +6,10 @@ from services.estado_service import EstadoService
 from services.pais_service import PaisService
 from utils.utils import validar_cpf
 from datetime import date
+from utils.inputs import aplicar_padrao_inputs
 
 st.set_page_config(page_title="Gestão de Clientes", layout="wide")
+aplicar_padrao_inputs()
 
 # --- INICIALIZAÇÃO DE ESTADOS DE SESSÃO ---
 if "cliente_para_editar" not in st.session_state:

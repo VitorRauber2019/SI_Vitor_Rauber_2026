@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
 from services.servico_service import ServicoService
+from utils.inputs import aplicar_padrao_inputs
 
 st.set_page_config(page_title="Gestão de Serviços", layout="wide")
+aplicar_padrao_inputs()
 
 # --- INICIALIZAÇÃO DE ESTADOS DE SESSÃO ---
 if "servico_para_editar" not in st.session_state:

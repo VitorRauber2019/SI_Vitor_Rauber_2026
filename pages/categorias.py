@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
 from services.categoria_service import CategoriaService
+from utils.inputs import aplicar_padrao_inputs
 
 st.set_page_config(page_title="Gerenciar Categorias", layout="wide")
+aplicar_padrao_inputs()
 
 # --- INICIALIZAÇÃO DE ESTADOS DE SESSÃO ---
 if "categoria_para_editar" not in st.session_state:

@@ -3,8 +3,10 @@ import pandas as pd
 from services.cidade_service import CidadeService
 from services.estado_service import EstadoService
 from services.pais_service import PaisService 
+from utils.inputs import aplicar_padrao_inputs
 
 st.set_page_config(page_title="Gestão Geográfica", layout="wide")
+aplicar_padrao_inputs()
 
 # --- INICIALIZAÇÃO DE ESTADOS DE SESSÃO ---
 if "pais_selecionado" not in st.session_state:

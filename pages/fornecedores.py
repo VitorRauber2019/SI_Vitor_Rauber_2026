@@ -10,6 +10,7 @@ from services.estado_service import EstadoService
 from services.fornecedor_service import FornecedorService
 from services.pais_service import PaisService
 from services.transportadora_service import TransportadoraService
+from utils.inputs import aplicar_padrao_inputs
 
 # Carrega variáveis de ambiente (.env)
 load_dotenv()
@@ -34,6 +35,7 @@ service = FornecedorService(supabase)
 transp_service = TransportadoraService(supabase)
 
 st.set_page_config(page_title="Novo Fornecedor", layout="wide")
+aplicar_padrao_inputs()
 
 # --- INICIALIZAÇÃO DO SESSION STATE ---
 if "cidade_fornecedor_selecionada" not in st.session_state:
@@ -57,11 +59,17 @@ if "estado_modal_transp_selecionado" not in st.session_state:
 if "pais_modal_transp_selecionado" not in st.session_state:
     st.session_state.pais_modal_transp_selecionado = None
 
-if "emails" not in st.session_state:
-    st.session_state.emails = []
+if "forn_emails" not in st.session_state:
+    st.session_state.forn_emails = []
 
-if "telefones" not in st.session_state:
-    st.session_state.telefones = []
+if "forn_telefones" not in st.session_state:
+    st.session_state.forn_telefones = []
+
+if "fornecedor_para_editar" not in st.session_state:
+    st.session_state.fornecedor_para_editar = None
+
+if "fornecedor_msg" not in st.session_state:
+    st.session_state.fornecedor_msg = None
 
 # --- CARREGAR CONDIÇÕES DE PAGAMENTO DO BANCO DE DADOS ---
 condicoes_db = CondicaoPagamentoService.listar_todas(apenas_ativos=True)
@@ -506,10 +514,55 @@ def gerenciar_transportadoras_modal():
                     st.error("Preencha Razão Social, CNPJ/CPF e Cidade.")
 
 
-# --- TELA PRINCIPAL: FORMULÁRIO DE CADASTRO DE FORNECEDOR ---
+# --- TELA PRINCIPAL: FORMULÁRIO DE CADASTRO / EDIÇÃO DE FORNECEDOR ---
 
-st.caption("Fornecedores / Novo Fornecedor")
-st.title("Novo Fornecedor")
+TIPOS_PESSOA = ["Jurídica", "Física"]
+
+
+def _como_lista(valor):
+    return list(valor) if isinstance(valor, list) else []
+
+
+def limpar_formulario_fornecedor():
+    st.session_state.forn_emails = []
+    st.session_state.forn_telefones = []
+    st.session_state.cidade_fornecedor_selecionada = None
+    st.session_state.transportadora_fornecedor_selecionada = None
+    st.session_state.fornecedor_para_editar = None
+
+
+def carregar_fornecedor_para_edicao(f):
+    st.session_state.fornecedor_para_editar = f
+    st.session_state.forn_emails = _como_lista(f.get("emails"))
+    st.session_state.forn_telefones = _como_lista(f.get("telefones"))
+    st.session_state.cidade_fornecedor_selecionada = (
+        {
+            "id": f.get("cidade_id"),
+            "nome": f.get("cidade") or "",
+            "estado": f.get("estado") or "",
+            "pais": f.get("pais") or "",
+        }
+        if f.get("cidade")
+        else None
+    )
+    st.session_state.transportadora_fornecedor_selecionada = (
+        {"id": f.get("transportadora_id"), "nome": f.get("transportadora")}
+        if f.get("transportadora")
+        else None
+    )
+
+
+forn_edit = st.session_state.fornecedor_para_editar
+modo_edicao = forn_edit is not None
+fe = forn_edit or {}
+
+titulo = "✏️ Editar Fornecedor" if modo_edicao else "Novo Fornecedor"
+st.caption(f"Fornecedores / {titulo}")
+st.title(titulo)
+
+if st.session_state.fornecedor_msg:
+    st.success(st.session_state.fornecedor_msg)
+    st.session_state.fornecedor_msg = None
 
 cidade_sel = st.session_state.cidade_fornecedor_selecionada
 transp_sel = st.session_state.transportadora_fornecedor_selecionada
@@ -519,20 +572,29 @@ with st.form("form_fornecedor", clear_on_submit=False):
     # Tipo de Pessoa e Status
     col_tipo, col_status, col_empty = st.columns([2, 1, 5])
     with col_tipo:
-        tipo_pessoa = st.selectbox("Tipo de Pessoa *", ["Jurídica", "Física"])
+        tipo_padrao = fe.get("tipo_pessoa")
+        tipo_pessoa = st.selectbox(
+            "Tipo de Pessoa *",
+            TIPOS_PESSOA,
+            index=TIPOS_PESSOA.index(tipo_padrao) if tipo_padrao in TIPOS_PESSOA else 0,
+        )
     with col_status:
         st.write("Status")
-        status = st.toggle("Ativo", value=True)
+        status = st.toggle("Ativo", value=bool(fe.get("status", True)))
 
     # Razão Social e Nome Fantasia
     col_razao, col_fantasia = st.columns([1, 1])
     with col_razao:
         razao_social = st.text_input(
-            "Razão Social *", placeholder="Digite a razão social"
+            "Razão Social *",
+            value=fe.get("razao_social") or "",
+            placeholder="Digite a razão social",
         )
     with col_fantasia:
         nome_fantasia = st.text_input(
-            "Nome Fantasia", placeholder="Nome fantasia"
+            "Nome Fantasia",
+            value=fe.get("nome_fantasia") or "",
+            placeholder="Nome fantasia",
         )
 
     # CNPJ/CPF e Inscrição Estadual
@@ -544,22 +606,32 @@ with st.form("form_fornecedor", clear_on_submit=False):
             if tipo_pessoa == "Jurídica"
             else "000.000.000-00"
         )
-        cnpj_cpf = st.text_input(doc_label, placeholder=doc_mask)
+        cnpj_cpf = st.text_input(
+            doc_label, value=fe.get("cnpj_cpf") or "", placeholder=doc_mask
+        )
     with col_ie:
         inscricao_estadual = st.text_input(
-            "Inscrição Estadual", placeholder="Número da I.E."
+            "Inscrição Estadual",
+            value=fe.get("inscricao_estadual") or "",
+            placeholder="Número da I.E.",
         )
 
     # CEP, Logradouro e Número
     col_cep, col_logradouro, col_num = st.columns([1.5, 3.5, 1])
     with col_cep:
-        cep = st.text_input("CEP", placeholder="00000-000")
+        cep = st.text_input(
+            "CEP", value=fe.get("cep") or "", placeholder="00000-000"
+        )
     with col_logradouro:
         logradouro = st.text_input(
-            "Logradouro", placeholder="Rua, avenida, alameda..."
+            "Logradouro",
+            value=fe.get("logradouro") or "",
+            placeholder="Rua, avenida, alameda...",
         )
     with col_num:
-        numero = st.text_input("Número", placeholder="Nº")
+        numero = st.text_input(
+            "Número", value=fe.get("numero") or "", placeholder="Nº"
+        )
 
     # Localização (País, Estado, Cidade)
     col_pais, col_uf, col_cidade, col_btn_geo = st.columns([1, 1, 1, 0.8])
@@ -594,21 +666,34 @@ with st.form("form_fornecedor", clear_on_submit=False):
     col_comp, col_bairro = st.columns([1, 1])
     with col_comp:
         complemento = st.text_input(
-            "Complemento", placeholder="Apto, bloco, sala..."
+            "Complemento",
+            value=fe.get("complemento") or "",
+            placeholder="Apto, bloco, sala...",
         )
     with col_bairro:
-        bairro = st.text_input("Bairro", placeholder="Bairro")
+        bairro = st.text_input(
+            "Bairro", value=fe.get("bairro") or "", placeholder="Bairro"
+        )
 
     # Condição de Pagamento, Limite de Crédito e Transportadora (com Botão Modal)
     col_cond, col_limite, col_transp, col_btn_transp = st.columns([1, 1, 1, 0.8])
     with col_cond:
+        cond_padrao = fe.get("condicao_pagamento")
         condicao_pagamento = st.selectbox(
             "Condição de Pagamento *",
             options=opcoes_condicao_pagamento,
+            index=(
+                opcoes_condicao_pagamento.index(cond_padrao)
+                if cond_padrao in opcoes_condicao_pagamento
+                else 0
+            ),
         )
     with col_limite:
         limite_credito = st.number_input(
-            "Limite de Crédito (R$) *", min_value=0.0, value=0.0, step=100.0
+            "Limite de Crédito (R$) *",
+            min_value=0.0,
+            value=float(fe.get("limite_credito") or 0.0),
+            step=100.0,
         )
     with col_transp:
         val_transp = transp_sel.get("nome", "") if transp_sel else ""
@@ -635,8 +720,8 @@ with st.form("form_fornecedor", clear_on_submit=False):
             key="input_email",
         )
 
-    if st.session_state.emails:
-        for em in st.session_state.emails:
+    if st.session_state.forn_emails:
+        for em in st.session_state.forn_emails:
             st.text(f"• {em}")
     else:
         st.caption("Nenhum e-mail cadastrado.")
@@ -651,8 +736,8 @@ with st.form("form_fornecedor", clear_on_submit=False):
             key="input_tel",
         )
 
-    if st.session_state.telefones:
-        for tel in st.session_state.telefones:
+    if st.session_state.forn_telefones:
+        for tel in st.session_state.forn_telefones:
             st.text(f"• {tel}")
     else:
         st.caption("Nenhum telefone cadastrado.")
@@ -661,6 +746,7 @@ with st.form("form_fornecedor", clear_on_submit=False):
     st.subheader("Observações")
     observacoes = st.text_area(
         "Observações adicionais",
+        value=fe.get("observacoes") or "",
         placeholder="Observações adicionais",
         height=100,
     )
@@ -668,10 +754,12 @@ with st.form("form_fornecedor", clear_on_submit=False):
     st.markdown("---")
 
     # Botões Finais
-    col_b1, col_b2, col_salvar, col_cancelar = st.columns([5, 1, 1, 1])
+    col_b1, col_b2, col_salvar, col_cancelar = st.columns([4, 1, 1.5, 1])
     with col_salvar:
         btn_salvar = st.form_submit_button(
-            "Salvar", type="primary", use_container_width=True
+            "Salvar Alterações" if modo_edicao else "Salvar",
+            type="primary",
+            use_container_width=True,
         )
     with col_cancelar:
         btn_cancelar = st.form_submit_button(
@@ -687,10 +775,10 @@ if btn_abrir_modal_transp:
 
 # Lógica de Gravação no Supabase
 if btn_salvar:
-    if novo_email and novo_email not in st.session_state.emails:
-        st.session_state.emails.append(novo_email)
-    if novo_tel and novo_tel not in st.session_state.telefones:
-        st.session_state.telefones.append(novo_tel)
+    if novo_email and novo_email not in st.session_state.forn_emails:
+        st.session_state.forn_emails.append(novo_email)
+    if novo_tel and novo_tel not in st.session_state.forn_telefones:
+        st.session_state.forn_telefones.append(novo_tel)
 
     if not razao_social or not cnpj_cpf or not cidade:
         st.error(
@@ -721,25 +809,96 @@ if btn_salvar:
             "transportadora_id": (
                 transp_sel["id"] if transp_sel and "id" in transp_sel else None
             ),
-            "emails": st.session_state.emails,
-            "telefones": st.session_state.telefones,
+            "emails": st.session_state.forn_emails,
+            "telefones": st.session_state.forn_telefones,
             "observacoes": observacoes,
         }
 
-        sucesso, resultado = service.criar(dados)
+        if modo_edicao:
+            sucesso, resultado = service.editar(forn_edit["id"], dados)
+            msg = f"Fornecedor {razao_social} atualizado com sucesso!"
+        else:
+            sucesso, resultado = service.criar(dados)
+            msg = "Fornecedor cadastrado com sucesso!"
 
         if sucesso:
-            st.success("Fornecedor cadastrado com sucesso!")
-            st.session_state.emails = []
-            st.session_state.telefones = []
-            st.session_state.cidade_fornecedor_selecionada = None
-            st.session_state.transportadora_fornecedor_selecionada = None
+            limpar_formulario_fornecedor()
+            st.session_state.fornecedor_msg = msg
+            st.rerun()
         else:
             st.error(f"Erro ao salvar fornecedor: {resultado}")
 
 if btn_cancelar:
-    st.info("Cadastro cancelado.")
-    st.session_state.emails = []
-    st.session_state.telefones = []
-    st.session_state.cidade_fornecedor_selecionada = None
-    st.session_state.transportadora_fornecedor_selecionada = None
+    limpar_formulario_fornecedor()
+    st.rerun()
+
+# --- LISTAGEM DE FORNECEDORES CADASTRADOS ---
+st.write("")
+st.subheader("📊 Fornecedores Cadastrados")
+
+col_busca, col_desat = st.columns([3, 1])
+busca_forn = col_busca.text_input(
+    "Buscar", placeholder="Razão social, nome fantasia ou CNPJ/CPF...", key="busca_fornecedores"
+)
+col_desat.write("")
+exibir_desativados = col_desat.checkbox(
+    "👁️ Exibir desativados", value=False, key="chk_forn_desat"
+)
+
+fornecedores = service.listar_todos(
+    busca=busca_forn.strip() or None, apenas_ativos=not exibir_desativados
+)
+
+if fornecedores:
+    df_forn = pd.DataFrame([
+        {
+            "ID": f["id"],
+            "Razão Social": f.get("razao_social") or "",
+            "Nome Fantasia": f.get("nome_fantasia") or "",
+            "CNPJ/CPF": f.get("cnpj_cpf") or "",
+            "Cidade": f.get("cidade") or "",
+            "Estado": f.get("estado") or "",
+            "Condição Pag.": f.get("condicao_pagamento") or "",
+            "Transportadora": f.get("transportadora") or "",
+            "Status": "🟢 Ativo" if f.get("status", True) else "🔴 Desativado",
+        }
+        for f in fornecedores
+    ])
+
+    evento_grid = st.dataframe(
+        df_forn,
+        use_container_width=True,
+        hide_index=True,
+        selection_mode="single-row",
+        on_select="rerun",
+        key="grid_fornecedores",
+    )
+
+    if evento_grid.selection.rows:
+        forn_escolhido = fornecedores[evento_grid.selection.rows[0]]
+
+        st.write("")
+        c_aviso, c_edit, c_del = st.columns([0.5, 0.25, 0.25])
+        c_aviso.info(
+            f"Item Selecionado: ID **{forn_escolhido['id']}** - **{forn_escolhido.get('razao_social', '')}**"
+        )
+
+        if c_edit.button("✏️ Editar Selecionado", use_container_width=True):
+            carregar_fornecedor_para_edicao(forn_escolhido)
+            st.rerun()
+
+        esta_ativo = bool(forn_escolhido.get("status", True))
+        texto_botao = "❌ Desativar" if esta_ativo else "🔄 Reativar"
+        cor_botao = "primary" if esta_ativo else "secondary"
+
+        if c_del.button(texto_botao, type=cor_botao, use_container_width=True):
+            sucesso, resultado = service.alternar_status(
+                forn_escolhido["id"], not esta_ativo
+            )
+            if sucesso:
+                st.session_state.fornecedor_msg = "Status alterado com sucesso!"
+                st.rerun()
+            else:
+                st.error(resultado)
+else:
+    st.info("Nenhum fornecedor localizado com os filtros aplicados.")

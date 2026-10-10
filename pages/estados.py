@@ -2,8 +2,10 @@ import streamlit as st
 import pandas as pd
 from services.estado_service import EstadoService
 from services.pais_service import PaisService
+from utils.inputs import aplicar_padrao_inputs
 
 st.set_page_config(page_title="Gestão de Estados", layout="wide")
+aplicar_padrao_inputs()
 
 # --- INICIALIZAÇÃO DE ESTADOS DE SESSÃO ---
 if "estado_para_editar" not in st.session_state:

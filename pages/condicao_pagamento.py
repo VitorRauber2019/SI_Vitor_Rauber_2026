@@ -2,10 +2,12 @@ import pandas as pd
 import streamlit as st
 from services.condicaopag_service import CondicaoPagamentoService
 from services.formpag_service import FormaPagamentoService
+from utils.inputs import aplicar_padrao_inputs
 
 st.set_page_config(
     page_title="Condições de Pagamento", layout="wide", page_icon="💳"
 )
+aplicar_padrao_inputs()
 
 # --- CARREGAMENTO DE DADOS AUXILIARES ---
 formas_pag_db = FormaPagamentoService.listar_todas(apenas_ativos=True)
