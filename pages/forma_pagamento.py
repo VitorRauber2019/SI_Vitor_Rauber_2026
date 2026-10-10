@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
 from services.formpag_service import FormaPagamentoService
+from utils.inputs import aplicar_padrao_inputs
 
 st.set_page_config(page_title="Formas de Pagamento", layout="wide")
+aplicar_padrao_inputs()
 
 # --- INICIALIZAÇÃO DE ESTADOS DE SESSÃO ---
 if "forma_pag_para_editar" not in st.session_state:

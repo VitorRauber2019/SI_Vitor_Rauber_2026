@@ -16,6 +16,7 @@ from services.pais_service import PaisService
 from services.produto_service import ProdutoService
 from services.transportadora_service import TransportadoraService
 from services.unidade_medida_service import UnidadeMedidaService
+from utils.inputs import aplicar_padrao_inputs
 
 # Carrega variáveis de ambiente (.env)
 load_dotenv()
@@ -39,6 +40,7 @@ fornecedor_service = FornecedorService(supabase)
 transp_service = TransportadoraService(supabase)
 
 st.set_page_config(page_title="Cadastro de Compra", layout="wide")
+aplicar_padrao_inputs()
 
 # --- INICIALIZAÇÃO DO SESSION STATE ---
 if "fornecedor_compra_selecionado" not in st.session_state:

@@ -4,8 +4,10 @@ from services.produto_service import ProdutoService
 from services.marca_service import MarcaService
 from services.categoria_service import CategoriaService
 from services.unidade_medida_service import UnidadeMedidaService
+from utils.inputs import aplicar_padrao_inputs
 
 st.set_page_config(page_title="Controle de Estoque", layout="wide")
+aplicar_padrao_inputs()
 st.title("📦 Gestão de Produtos e Insumos")
 
 # --- INICIALIZAÇÃO DE ESTADOS DE SESSÃO ---
