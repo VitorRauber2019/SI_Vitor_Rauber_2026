@@ -15,8 +15,10 @@ from services.marca_service import MarcaService
 from services.pais_service import PaisService
 from services.produto_service import ProdutoService
 from services.transportadora_service import TransportadoraService
+from services.veiculo_service import VeiculoService
 from services.unidade_medida_service import UnidadeMedidaService
 from utils.inputs import aplicar_padrao_inputs
+from utils.veiculos_ui import renderizar_gerenciador_veiculos, renderizar_veiculos_selecionados
 
 # Carrega variáveis de ambiente (.env)
 load_dotenv()
@@ -38,6 +40,7 @@ supabase = init_supabase()
 compra_service = CompraService(supabase)
 fornecedor_service = FornecedorService(supabase)
 transp_service = TransportadoraService(supabase)
+veiculo_service = VeiculoService(supabase)
 
 st.set_page_config(page_title="Cadastro de Compra", layout="wide")
 aplicar_padrao_inputs()
@@ -48,6 +51,9 @@ if "fornecedor_compra_selecionado" not in st.session_state:
 
 if "transportadora_compra_selecionada" not in st.session_state:
     st.session_state.transportadora_compra_selecionada = None
+
+if "veiculos_modal_transp_compra" not in st.session_state:
+    st.session_state.veiculos_modal_transp_compra = []
 
 if "itens_compra" not in st.session_state:
     st.session_state.itens_compra = []
@@ -586,10 +592,16 @@ def gerenciar_transportadoras_modal():
             t_condicao = c_cond.selectbox("Condição de Pagamento *", options=opcoes_condicao_pagamento, key="cad_t_condicao")
             t_limite = c_lim.number_input("Limite de Crédito (R$) *", min_value=0.0, value=0.0, step=100.0, key="cad_t_limite")
 
-            c_em, c_tel, c_veic = st.columns(3)
+            c_em, c_tel = st.columns(2)
             t_emails = c_em.text_area("E-mails (um por linha)", placeholder="exemplo@dominio.com", key="cad_t_emails")
             t_telefones = c_tel.text_area("Telefones (um por linha)", placeholder="(00) 00000-0000", key="cad_t_telefones")
-            t_veiculos = c_veic.text_area("Veículos (um por linha)", placeholder="Placa / Modelo / RNTRC", key="cad_t_veiculos")
+
+            st.write("**Veículos**")
+            renderizar_veiculos_selecionados("veiculos_modal_transp_compra", prefix="modal_transp_compra")
+            with st.popover("Buscar / Criar Veículo", icon="🚚", use_container_width=True):
+                renderizar_gerenciador_veiculos(
+                    veiculo_service, "veiculos_modal_transp_compra", prefix="modal_transp_compra"
+                )
 
             t_obs = st.text_area("Observações", placeholder="Observações adicionais", key="cad_t_obs")
 
@@ -607,12 +619,15 @@ def gerenciar_transportadoras_modal():
                         "limite_credito": t_limite,
                         "emails": lista_por_linha(t_emails),
                         "telefones": lista_por_linha(t_telefones),
-                        "veiculos": lista_por_linha(t_veiculos),
                         "observacoes": t_obs,
                     }
                     sucesso, res = transp_service.criar(dados_t)
 
                     if sucesso:
+                        veiculo_service.sincronizar_transportadora(
+                            res["id"], [v["id"] for v in st.session_state.veiculos_modal_transp_compra]
+                        )
+                        st.session_state.veiculos_modal_transp_compra = []
                         st.success("Transportadora cadastrada com sucesso!")
                         st.session_state.transportadora_compra_selecionada = {
                             "id": res.get("id") if isinstance(res, dict) and res.get("id") else None,

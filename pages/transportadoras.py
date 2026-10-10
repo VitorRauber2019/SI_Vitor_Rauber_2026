@@ -9,7 +9,13 @@ from services.condicaopag_service import CondicaoPagamentoService
 from services.estado_service import EstadoService
 from services.pais_service import PaisService
 from services.transportadora_service import TransportadoraService
+from services.veiculo_service import VeiculoService
 from utils.inputs import aplicar_padrao_inputs
+from utils.veiculos_ui import (
+    renderizar_gerenciador_veiculos,
+    renderizar_veiculos_selecionados,
+    resumo_veiculo,
+)
 
 # Carrega variáveis de ambiente (.env)
 load_dotenv()
@@ -31,6 +37,7 @@ def init_supabase() -> Client:
 
 supabase = init_supabase()
 service = TransportadoraService(supabase)
+veiculo_service = VeiculoService(supabase)
 
 st.set_page_config(page_title="Nova Transportadora", layout="wide")
 aplicar_padrao_inputs()
@@ -51,7 +58,10 @@ if "transp_emails" not in st.session_state:
 if "transp_telefones" not in st.session_state:
     st.session_state.transp_telefones = []
 
-if "transp_veiculos" not in st.session_state:
+# Lista de veículos (dicts da tabela 'veiculos') vinculados à transportadora do formulário
+if "transp_veiculos" not in st.session_state or any(
+    not isinstance(v, dict) for v in st.session_state.transp_veiculos
+):
     st.session_state.transp_veiculos = []
 
 if "transportadora_para_editar" not in st.session_state:
@@ -336,6 +346,20 @@ def gerenciar_cidades_modal():
                     st.error("Informe o Nome da Cidade e selecione o Estado.")
 
 
+@st.dialog("Gerenciar Veículos", width="large")
+def gerenciar_veiculos_modal():
+    """Modal para selecionar ou cadastrar Veículos da transportadora."""
+    st.write("**Veículos vinculados**")
+    renderizar_veiculos_selecionados("transp_veiculos", prefix="modal_veic")
+    st.markdown("---")
+    renderizar_gerenciador_veiculos(
+        veiculo_service, "transp_veiculos", prefix="modal_veic"
+    )
+    st.markdown("---")
+    if st.button("Concluir", type="primary", use_container_width=True, key="btn_concluir_veic"):
+        st.rerun()
+
+
 # --- TELA PRINCIPAL: FORMULÁRIO DE CADASTRO / EDIÇÃO DE TRANSPORTADORA ---
 
 TIPOS_PESSOA = ["Jurídica", "Física"]
@@ -357,7 +381,9 @@ def carregar_transportadora_para_edicao(t):
     st.session_state.transportadora_para_editar = t
     st.session_state.transp_emails = _como_lista(t.get("emails"))
     st.session_state.transp_telefones = _como_lista(t.get("telefones"))
-    st.session_state.transp_veiculos = _como_lista(t.get("veiculos"))
+    st.session_state.transp_veiculos = [
+        resumo_veiculo(v) for v in veiculo_service.listar_por_transportadora(t["id"])
+    ]
     st.session_state.cidade_transportadora_selecionada = (
         {
             "id": t.get("cidade_id"),
@@ -549,19 +575,15 @@ with st.form("form_transportadora", clear_on_submit=False):
 
     # Seção de Veículos
     st.subheader("VEÍCULOS")
-    col_veic_input, _ = st.columns([4, 1])
-    with col_veic_input:
-        novo_veiculo = st.text_input(
-            "Adicionar Veículo",
-            placeholder="Placa / Modelo / RNTRC",
-            key="input_veiculo",
+    col_veic_lista, col_btn_veic = st.columns([4, 1])
+    with col_veic_lista:
+        renderizar_veiculos_selecionados(
+            "transp_veiculos", prefix="form_transp", dentro_de_form=True
         )
-
-    if st.session_state.transp_veiculos:
-        for v in st.session_state.transp_veiculos:
-            st.text(f"• {v}")
-    else:
-        st.caption("Nenhum veículo vinculado.")
+    with col_btn_veic:
+        btn_abrir_modal_veic = st.form_submit_button(
+            "🚚 Buscar / Criar", use_container_width=True
+        )
 
     # Observações
     st.subheader("Observações")
@@ -591,14 +613,16 @@ with st.form("form_transportadora", clear_on_submit=False):
 if btn_abrir_modal_geo:
     gerenciar_cidades_modal()
 
+# Ação para abrir o modal de veículos
+if btn_abrir_modal_veic:
+    gerenciar_veiculos_modal()
+
 # Lógica de Gravação no Supabase
 if btn_salvar:
     if novo_email and novo_email not in st.session_state.transp_emails:
         st.session_state.transp_emails.append(novo_email)
     if novo_tel and novo_tel not in st.session_state.transp_telefones:
         st.session_state.transp_telefones.append(novo_tel)
-    if novo_veiculo and novo_veiculo not in st.session_state.transp_veiculos:
-        st.session_state.transp_veiculos.append(novo_veiculo)
 
     if not razao_social or not cnpj_cpf or not cidade:
         st.error(
@@ -627,7 +651,6 @@ if btn_salvar:
             "limite_credito": limite_credito,
             "emails": st.session_state.transp_emails,
             "telefones": st.session_state.transp_telefones,
-            "veiculos": st.session_state.transp_veiculos,
             "observacoes": observacoes,
         }
 
@@ -639,6 +662,12 @@ if btn_salvar:
             msg = "Transportadora cadastrada com sucesso!"
 
         if sucesso:
+            transp_id = transp_edit["id"] if modo_edicao else resultado.get("id")
+            ok_veic, res_veic = veiculo_service.sincronizar_transportadora(
+                transp_id, [v["id"] for v in st.session_state.transp_veiculos]
+            )
+            if not ok_veic:
+                msg = f"{msg} Atenção: {res_veic}"
             limpar_formulario_transportadora()
             st.session_state.transportadora_msg = msg
             st.rerun()
