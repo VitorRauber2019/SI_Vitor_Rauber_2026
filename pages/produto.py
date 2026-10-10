@@ -235,10 +235,15 @@ with st.expander(titulo_formulario, expanded=modo_edicao):
     
     st.write("")
     col4, col5, col6 = st.columns(3)
-    v_compra = col4.number_input("Custo de Compra (R$)", min_value=0.0, step=1.0, value=v_compra_padrao)
+    col4.number_input(
+        "Custo de Compra (R$)", min_value=0.0, step=1.0, value=v_compra_padrao, disabled=True,
+        help="Preenchido automaticamente ao lançar uma compra.",
+    )
     v_venda = col5.number_input("Preço de Venda (R$)", min_value=0.0, step=1.0, value=v_venda_padrao)
-    # 💡 MODIFICADO: min_value=0 e step=1 (valores inteiros) força o componente a operar estritamente como int
-    qtd_atual = col6.number_input("Quantidade em Estoque", min_value=0, step=1, value=qtd_atual_padrao)
+    col6.number_input(
+        "Quantidade em Estoque", min_value=0, step=1, value=qtd_atual_padrao, disabled=True,
+        help="Atualizada automaticamente ao lançar ou cancelar uma compra.",
+    )
     
     st.write("")
     col_btn_salvar, col_btn_cancelar, _ = st.columns([0.15, 0.15, 0.7])
@@ -249,9 +254,7 @@ with st.expander(titulo_formulario, expanded=modo_edicao):
         "marca_id": m_atual["id"] if m_atual else None,
         "categoria_id": c_atual["id"] if c_atual else None,
         "unidade_medida_id": u_atual["id"] if u_atual else None,
-        "valor_compra": v_compra,
         "valor_venda": v_venda,
-        "quantidade_atual": int(qtd_atual), # 💡 MODIFICADO: Garantia extra forçando int no dicionário
     }
 
     if modo_edicao:

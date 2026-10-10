@@ -21,6 +21,7 @@ class ProdutoService:
         dados_tratados = {
             chave: valor.strip().upper() if isinstance(valor, str) else valor 
             for chave, valor in dados.items()
+            if chave not in ("valor_compra", "quantidade_atual")  # custo e estoque só mudam pelo lançamento de compra
         }
         # Garante que o produto inicie com o status ativo
         dados_tratados["ativo"] = True
@@ -33,6 +34,7 @@ class ProdutoService:
         dados_tratados = {
             chave: valor.strip().upper() if isinstance(valor, str) else valor 
             for chave, valor in dados.items()
+            if chave not in ("valor_compra", "quantidade_atual")  # custo e estoque só mudam pelo lançamento de compra
         }
         
         # Executa a atualização filtrando pelo ID do produto
