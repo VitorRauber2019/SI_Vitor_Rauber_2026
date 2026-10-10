@@ -10,7 +10,9 @@ from services.estado_service import EstadoService
 from services.fornecedor_service import FornecedorService
 from services.pais_service import PaisService
 from services.transportadora_service import TransportadoraService
+from services.veiculo_service import VeiculoService
 from utils.inputs import aplicar_padrao_inputs
+from utils.veiculos_ui import renderizar_gerenciador_veiculos, renderizar_veiculos_selecionados
 
 # Carrega variáveis de ambiente (.env)
 load_dotenv()
@@ -33,6 +35,7 @@ def init_supabase() -> Client:
 supabase = init_supabase()
 service = FornecedorService(supabase)
 transp_service = TransportadoraService(supabase)
+veiculo_service = VeiculoService(supabase)
 
 st.set_page_config(page_title="Novo Fornecedor", layout="wide")
 aplicar_padrao_inputs()
@@ -58,6 +61,9 @@ if "estado_modal_transp_selecionado" not in st.session_state:
 
 if "pais_modal_transp_selecionado" not in st.session_state:
     st.session_state.pais_modal_transp_selecionado = None
+
+if "veiculos_modal_transp_forn" not in st.session_state:
+    st.session_state.veiculos_modal_transp_forn = []
 
 if "forn_emails" not in st.session_state:
     st.session_state.forn_emails = []
@@ -479,6 +485,14 @@ def gerenciar_transportadoras_modal():
                 with st.popover(txt_pop_c, icon="🏙️", use_container_width=True):
                     renderizar_gerenciador_cidades(prefix="modal_transp")
 
+            # VEÍCULOS DA TRANSPORTADORA
+            st.write("**Veículos**")
+            renderizar_veiculos_selecionados("veiculos_modal_transp_forn", prefix="modal_transp_forn")
+            with st.popover("Buscar / Criar Veículo", icon="🚚", use_container_width=True):
+                renderizar_gerenciador_veiculos(
+                    veiculo_service, "veiculos_modal_transp_forn", prefix="modal_transp_forn"
+                )
+
             if st.button(
                 "Salvar e Selecionar Transportadora",
                 type="primary",
@@ -501,6 +515,10 @@ def gerenciar_transportadoras_modal():
                     sucesso, res = transp_service.criar(dados_t)
 
                     if sucesso:
+                        veiculo_service.sincronizar_transportadora(
+                            res["id"], [v["id"] for v in st.session_state.veiculos_modal_transp_forn]
+                        )
+                        st.session_state.veiculos_modal_transp_forn = []
                         st.success("Transportadora cadastrada com sucesso!")
                         st.session_state.transportadora_fornecedor_selecionada = {
                             "id": res.get("id") if isinstance(res, dict) else None,
