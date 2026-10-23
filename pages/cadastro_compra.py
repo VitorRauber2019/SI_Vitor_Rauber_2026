@@ -110,6 +110,18 @@ opcoes_condicao_pagamento = (
 )
 condicoes_por_nome = {cp["condicao_pagamento"]: cp for cp in condicoes_db or []}
 
+
+def condicao_do_fornecedor(forn):
+    """Nome da condição de pagamento cadastrada do fornecedor (ignora maiúsculas e espaços) ou None."""
+    nome = str((forn or {}).get("condicao_pagamento") or "").strip().upper()
+    return next((c for c in condicoes_por_nome if c.strip().upper() == nome), None) if nome else None
+
+
+def selecionar_fornecedor_compra(forn):
+    """Seleciona o fornecedor da compra e já traz a condição de pagamento dele."""
+    st.session_state.fornecedor_compra_selecionado = forn
+    st.session_state.condicao_compra_sel = condicao_do_fornecedor(forn)
+
 # --- COMPONENTES AUXILIARES DE LOCALIZAÇÃO (USADOS DENTRO DOS MODAIS) ---
 # Os botões usam st.rerun(scope="fragment") para não fechar o modal (st.dialog) aberto.
 
@@ -441,12 +453,12 @@ def gerenciar_fornecedores_modal():
                         use_container_width=True,
                         key="btn_sel_forn_compra",
                     ):
-                        st.session_state.fornecedor_compra_selecionado = {
+                        selecionar_fornecedor_compra({
                             "id": int(escolhido["ID"]),
                             "nome": escolhido["Razão Social"],
                             "cnpj_cpf": escolhido["CNPJ/CPF"],
                             "condicao_pagamento": escolhido["Condição Pagamento"],
-                        }
+                        })
                         st.rerun()
 
     with tab_cad:
@@ -506,12 +518,12 @@ def gerenciar_fornecedores_modal():
 
                     if sucesso:
                         st.success("Fornecedor cadastrado com sucesso!")
-                        st.session_state.fornecedor_compra_selecionado = {
+                        selecionar_fornecedor_compra({
                             "id": res.get("id") if isinstance(res, dict) else None,
                             "nome": f_razao,
                             "cnpj_cpf": f_cnpj,
                             "condicao_pagamento": f_condicao,
-                        }
+                        })
                         limpar_localizacao("forn")
                         st.rerun()
                     else:
@@ -650,26 +662,29 @@ def moeda(valor):
 
 
 def calcular_itens(itens, custos_adicionais):
-    """Calcula total, rateio das despesas (frete + seguro + outras) e custo unitário de cada item."""
+    """Calcula rateio das despesas (frete + seguro + outras), custo unitário (6 casas) e total de cada item.
+
+    O desconto (desconto_valor) é por unidade e o total do item segue o custo unitário (custo × qtd).
+    """
     calculados = []
     for item in itens:
-        bruto = item["quantidade"] * item["preco_unitario"]
-        total = round(bruto - item["desconto_valor"], 2)
-        calculados.append({**item, "total_item": total})
+        liquido_unit = item["preco_unitario"] - item["desconto_valor"]
+        calculados.append({**item, "liquido": liquido_unit * item["quantidade"]})
 
-    total_produtos = sum(i["total_item"] for i in calculados)
+    total_liquido = sum(i["liquido"] for i in calculados)
     acumulado = 0.0
     for idx, item in enumerate(calculados):
-        if total_produtos <= 0:
+        if total_liquido <= 0:
             rateio = 0.0
         elif idx < len(calculados) - 1:
-            rateio = round(custos_adicionais * item["total_item"] / total_produtos, 2)
+            rateio = round(custos_adicionais * item["liquido"] / total_liquido, 2)
         else:
             # O último item absorve a diferença de centavos do rateio
             rateio = round(custos_adicionais - acumulado, 2)
         acumulado += rateio
         item["custo_rateio"] = rateio
-        item["custo_unitario"] = round((item["total_item"] + rateio) / item["quantidade"], 4)
+        item["custo_unitario"] = round((item["liquido"] + rateio) / item["quantidade"], 6)
+        item["total_item"] = round(item["custo_unitario"] * item["quantidade"], 2)
     return calculados
 
 
@@ -679,9 +694,8 @@ def adicionar_item(produto_id, produto, quantidade, preco_unitario, desconto_per
         if item["produto_id"] == produto_id:
             item["quantidade"] += quantidade
             item["preco_unitario"] = preco_unitario
-            bruto = item["quantidade"] * preco_unitario
             item["desconto_percentual"] = desconto_percentual
-            item["desconto_valor"] = round(bruto * desconto_percentual / 100, 2) if desconto_percentual else desconto_valor
+            item["desconto_valor"] = desconto_valor
             break
     else:
         st.session_state.itens_compra.append({
@@ -777,30 +791,38 @@ def consultar_produto_modal():
             if prod.get("descricao"):
                 st.caption(prod["descricao"])
 
+            # Keys com o id do produto: cada produto tem seus próprios campos (desconto começa em 0)
             c_qtd, c_preco, c_tipo_desc, c_desc = st.columns(4)
-            qtd = c_qtd.number_input("Quantidade *", min_value=1, value=1, step=1, key="prod_add_qtd")
+            qtd = c_qtd.number_input("Quantidade *", min_value=1, value=1, step=1, key=f"prod_add_qtd_{prod['id']}")
             preco = c_preco.number_input(
                 "Valor unitário (R$) *", min_value=0.0, value=float(prod.get("valor_compra") or 0),
                 step=0.01, format="%.2f", key=f"prod_add_preco_{prod['id']}",
             )
-            tipo_desc = c_tipo_desc.selectbox("Desconto em", ["Percentual (%)", "Valor (R$)"], key="prod_add_tipo_desc")
-            desc = c_desc.number_input("Desconto", min_value=0.0, value=0.0, step=0.01, format="%.2f", key="prod_add_desc")
+            tipo_desc = c_tipo_desc.selectbox(
+                "Desconto em", ["Percentual (%)", "Valor (R$)"], key=f"prod_add_tipo_desc_{prod['id']}"
+            )
+            desc = c_desc.number_input(
+                "Desconto por unidade", min_value=0.0, value=0.0, step=0.01, format="%.2f",
+                key=f"prod_add_desc_{prod['id']}",
+            )
 
-            bruto = qtd * preco
+            # O desconto vale para cada unidade
             if tipo_desc == "Percentual (%)":
-                desc_pct, desc_val = desc, round(bruto * desc / 100, 2)
+                desc_pct, desc_val = desc, round(preco * desc / 100, 6)
             else:
-                desc_val, desc_pct = desc, round(desc / bruto * 100, 2) if bruto else 0.0
+                desc_val, desc_pct = desc, round(desc / preco * 100, 2) if preco else 0.0
+            custo_unit = round(preco - desc_val, 6)
 
             st.markdown(
-                f"<div style='text-align:right'>Desconto: {desc_pct:.2f}% = {moeda(desc_val)} · "
-                f"<b>Total do item: {moeda(bruto - desc_val)}</b></div>",
+                f"<div style='text-align:right'>Desconto: {desc_pct:.2f}% = {moeda(desc_val)} por unidade · "
+                f"Custo unit.: R$ {custo_unit:.6f} · "
+                f"<b>Total do item: {moeda(round(custo_unit * qtd, 2))}</b></div>",
                 unsafe_allow_html=True,
             )
 
             if st.button("➕ Adicionar à compra", type="primary", use_container_width=True, key="btn_add_prod_compra"):
-                if desc_val > bruto:
-                    st.error("O desconto não pode ser maior que o valor do item.")
+                if desc_val > preco:
+                    st.error("O desconto não pode ser maior que o valor unitário.")
                 else:
                     adicionar_item(int(prod["id"]), prod.get("produto", ""), int(qtd), float(preco), desc_pct, desc_val)
                     st.rerun()
@@ -956,7 +978,7 @@ with tab_lista:
                         "quantidade": "Qtd",
                         "preco_unitario": st.column_config.NumberColumn("Valor unit.", format="R$ %.2f"),
                         "custo_rateio": st.column_config.NumberColumn("Custo (rateio)", format="R$ %.2f"),
-                        "custo_unitario": st.column_config.NumberColumn("Custo unit.", format="R$ %.4f"),
+                        "custo_unitario": st.column_config.NumberColumn("Custo unit.", format="R$ %.6f"),
                         "desconto_percentual": st.column_config.NumberColumn("Desc. %", format="%.2f%%"),
                         "desconto_valor": st.column_config.NumberColumn("Desc. R$", format="R$ %.2f"),
                         "total_item": st.column_config.NumberColumn("Total", format="R$ %.2f"),
@@ -1069,8 +1091,9 @@ def renderizar_nova_compra():
             else:
                 st.session_state.nota_confirmada = True
                 # Condição de pagamento do fornecedor vem pré-selecionada
-                if forn_sel.get("condicao_pagamento") in condicoes_por_nome:
-                    st.session_state.condicao_compra_sel = forn_sel["condicao_pagamento"]
+                st.session_state.condicao_compra_sel = (
+                    condicao_do_fornecedor(forn_sel) or st.session_state.condicao_compra_sel
+                )
                 st.rerun()
         st.info("Confirme os dados da nota para liberar os produtos.")
         return
@@ -1089,7 +1112,12 @@ def renderizar_nova_compra():
     outras_despesas = float(st.session_state.get(f"inp_outras_{v}", 0.0) or 0.0)
     custos_adicionais = round(frete + seguro + outras_despesas, 2)
 
-    acoes["prod"] = st.button("📦 Consultar / Adicionar Produto")
+    # Com parcelas geradas os produtos ficam bloqueados até as parcelas serem limpas
+    parcelas_geradas = bool(st.session_state.parcelas_compra)
+
+    acoes["prod"] = st.button("📦 Consultar / Adicionar Produto", disabled=parcelas_geradas)
+    if parcelas_geradas:
+        st.caption("Limpe as parcelas para alterar os produtos.")
 
     itens = calcular_itens(st.session_state.itens_compra, custos_adicionais)
 
@@ -1109,33 +1137,35 @@ def renderizar_nova_compra():
                 "preco_unitario": st.column_config.NumberColumn("Valor unit. (R$)", min_value=0.0, format="R$ %.2f"),
                 "custo_rateio": st.column_config.NumberColumn("Custo (R$)", disabled=True, format="R$ %.2f",
                                                               help="Rateio de frete + seguro + outras despesas"),
-                "custo_unitario": st.column_config.NumberColumn("Custo unit. (R$)", disabled=True, format="R$ %.4f",
-                                                                help="(Total do item + custo) / quantidade"),
+                "custo_unitario": st.column_config.NumberColumn("Custo unit. (R$)", disabled=True, format="R$ %.6f",
+                                                                help="Valor unit. - desconto unit. + custo / quantidade"),
                 "desconto_percentual": st.column_config.NumberColumn("Desc. %", min_value=0.0, max_value=100.0, format="%.2f"),
-                "desconto_valor": st.column_config.NumberColumn("Desc. R$", min_value=0.0, format="R$ %.2f"),
-                "total_item": st.column_config.NumberColumn("Total (R$)", disabled=True, format="R$ %.2f"),
+                "desconto_valor": st.column_config.NumberColumn("Desc. unit. R$", min_value=0.0, format="R$ %.2f",
+                                                                help="Desconto por unidade"),
+                "total_item": st.column_config.NumberColumn("Total (R$)", disabled=True, format="R$ %.2f",
+                                                            help="Custo unit. × quantidade"),
             },
             num_rows="fixed",
             hide_index=True,
             use_container_width=True,
+            disabled=parcelas_geradas,
             key=f"editor_itens_{st.session_state.versao_editor_itens}",
         )
 
-        # Sincroniza desconto % <-> R$ conforme o campo que foi alterado
+        # Sincroniza desconto % <-> R$ (por unidade) conforme o campo que foi alterado
         novos, mudou = [], False
         for anterior, linha in zip(st.session_state.itens_compra, edited.to_dict("records")):
             qtd = int(linha["quantidade"] or 1)
             preco = float(linha["preco_unitario"] or 0)
             pct = float(linha["desconto_percentual"] or 0)
             val = float(linha["desconto_valor"] or 0)
-            bruto = qtd * preco
             if pct != anterior["desconto_percentual"]:
-                val = round(bruto * pct / 100, 2)
+                val = round(preco * pct / 100, 6)
             elif val != anterior["desconto_valor"]:
-                pct = round(val / bruto * 100, 2) if bruto else 0.0
-            elif qtd != anterior["quantidade"] or preco != anterior["preco_unitario"]:
-                val = round(bruto * pct / 100, 2)
-            val = min(val, round(bruto, 2))
+                pct = round(val / preco * 100, 2) if preco else 0.0
+            elif preco != anterior["preco_unitario"]:
+                val = round(preco * pct / 100, 6)
+            val = min(val, preco)
             novo = {**anterior, "quantidade": qtd, "preco_unitario": preco,
                     "desconto_percentual": pct, "desconto_valor": val}
             mudou = mudou or novo != anterior
@@ -1151,15 +1181,16 @@ def renderizar_nova_compra():
             format_func=lambda i: f"{itens[i]['produto_id']} – {itens[i]['produto']}",
             key="sel_item_remover", label_visibility="collapsed",
         )
-        if c_btn_rem.button("🗑️ Remover", use_container_width=True):
+        if c_btn_rem.button("🗑️ Remover", use_container_width=True, disabled=parcelas_geradas):
             st.session_state.itens_compra.pop(item_remover)
             st.session_state.versao_editor_itens += 1
             st.rerun()
 
     total_bruto = sum(i["quantidade"] * i["preco_unitario"] for i in itens)
-    desconto_total = round(sum(i["desconto_valor"] for i in itens), 2)
+    desconto_total = round(sum(i["desconto_valor"] * i["quantidade"] for i in itens), 2)
+    # O total dos itens segue o custo unitário, que já inclui o rateio das despesas
     total_produtos = round(sum(i["total_item"] for i in itens), 2)
-    total_compra = round(total_produtos + custos_adicionais, 2)
+    total_compra = total_produtos
 
     st.markdown(
         f"<div style='text-align:right'><b>Total dos produtos: {moeda(total_produtos)}</b></div>",
@@ -1194,12 +1225,12 @@ def renderizar_nova_compra():
     st.markdown(
         "<table style='width:100%;text-align:right'>"
         "<tr><th style='text-align:right'>Total bruto</th><th style='text-align:right'>Descontos</th>"
-        "<th style='text-align:right'>Total produtos</th><th style='text-align:right'>Frete</th>"
-        "<th style='text-align:right'>Seguro</th><th style='text-align:right'>Outras despesas</th>"
+        "<th style='text-align:right'>Frete</th><th style='text-align:right'>Seguro</th>"
+        "<th style='text-align:right'>Outras despesas</th><th style='text-align:right'>Total produtos (c/ despesas)</th>"
         "<th style='text-align:right'>Total da compra</th></tr>"
-        f"<tr><td>{moeda(total_bruto)}</td><td>- {moeda(desconto_total)}</td><td>{moeda(total_produtos)}</td>"
+        f"<tr><td>{moeda(total_bruto)}</td><td>- {moeda(desconto_total)}</td>"
         f"<td>{moeda(frete)}</td><td>{moeda(seguro)}</td><td>{moeda(outras_despesas)}</td>"
-        f"<td><b>{moeda(total_compra)}</b></td></tr></table>",
+        f"<td>{moeda(total_produtos)}</td><td><b>{moeda(total_compra)}</b></td></tr></table>",
         unsafe_allow_html=True,
     )
 
@@ -1208,7 +1239,14 @@ def renderizar_nova_compra():
     # ---------------- 5. CONDIÇÃO DE PAGAMENTO ----------------
     st.subheader("5. Condição de pagamento")
 
+    if not st.session_state.condicao_compra_sel:
+        st.session_state.condicao_compra_sel = condicao_do_fornecedor(forn_sel)
     cond_nome = st.session_state.condicao_compra_sel
+    if not cond_nome and forn_sel.get("condicao_pagamento"):
+        st.warning(
+            f"A condição do fornecedor ({forn_sel['condicao_pagamento']}) não está cadastrada ou está "
+            "desativada. Selecione uma condição."
+        )
     col_cond, col_btn_cond = st.columns([4, 1])
     with col_cond:
         st.text_input("Condição de pagamento *", value=cond_nome or "", placeholder="Selecione a condição...",
@@ -1253,6 +1291,10 @@ def renderizar_nova_compra():
                 "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
             },
         )
+        if st.button("Limpar parcelas"):
+            st.session_state.parcelas_compra = []
+            st.session_state.assinatura_parcelas = None
+            st.rerun()
 
     st.markdown("---")
 
@@ -1291,8 +1333,12 @@ def renderizar_nova_compra():
             "forma_pagamento": parcelas[0].get("Forma") if parcelas else None,
         }
         itens_payload = [
-            {k: i[k] for k in ("produto_id", "produto", "quantidade", "preco_unitario", "desconto_percentual",
-                               "desconto_valor", "total_item", "custo_rateio", "custo_unitario")}
+            {
+                **{k: i[k] for k in ("produto_id", "produto", "quantidade", "preco_unitario", "desconto_percentual",
+                                     "total_item", "custo_rateio", "custo_unitario")},
+                # No banco o desconto é gravado pelo total do item
+                "desconto_valor": round(i["desconto_valor"] * i["quantidade"], 2),
+            }
             for i in itens
         ]
         parcelas_payload = [
