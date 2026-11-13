@@ -10,6 +10,7 @@ from services.cidade_service import CidadeService
 from services.compra_service import CompraService
 from services.condicaopag_service import CondicaoPagamentoService
 from services.estado_service import EstadoService
+from services.formpag_service import FormaPagamentoService
 from services.fornecedor_service import FornecedorService
 from services.marca_service import MarcaService
 from services.pais_service import PaisService
@@ -91,6 +92,17 @@ if "versao_editor_itens" not in st.session_state:
 if "versao_form_compra" not in st.session_state:
     st.session_state.versao_form_compra = 0
 
+# Seleções feitas pelos popovers dos cadastros rápidos (condição, transportadora, marca, categoria)
+for _chave in (
+    "condicao_forn_compra", "condicao_transp_compra", "condicao_forn_transp_compra",
+    "transportadora_forn_compra", "marca_prod_compra", "categoria_prod_compra", "produto_recem_criado",
+):
+    if _chave not in st.session_state:
+        st.session_state[_chave] = None
+
+if "veiculos_forn_transp_compra" not in st.session_state:
+    st.session_state.veiculos_forn_transp_compra = []
+
 # Localização usada nos cadastros rápidos de Fornecedor ("forn") e Transportadora ("transp")
 for _alvo in ("forn", "transp"):
     for _campo in ("cidade", "estado", "pais"):
@@ -109,6 +121,22 @@ opcoes_condicao_pagamento = (
     else ["À vista", "30 DIAS", "30/60 DIAS"]
 )
 condicoes_por_nome = {cp["condicao_pagamento"]: cp for cp in condicoes_db or []}
+
+
+def condicao_do_fornecedor(forn):
+    """Nome da condição de pagamento cadastrada do fornecedor (ignora maiúsculas e espaços) ou None."""
+    nome = str((forn or {}).get("condicao_pagamento") or "").strip().upper()
+    return next((c for c in condicoes_por_nome if c.strip().upper() == nome), None) if nome else None
+
+
+def selecionar_fornecedor_compra(forn):
+    """Seleciona o fornecedor da compra e já traz a condição de pagamento e a transportadora dele."""
+    st.session_state.fornecedor_compra_selecionado = forn
+    st.session_state.condicao_compra_sel = condicao_do_fornecedor(forn)
+    transp_nome = forn.get("transportadora")
+    st.session_state.transportadora_compra_selecionada = (
+        {"id": forn.get("transportadora_id"), "nome": transp_nome} if transp_nome else None
+    )
 
 # --- COMPONENTES AUXILIARES DE LOCALIZAÇÃO (USADOS DENTRO DOS MODAIS) ---
 # Os botões usam st.rerun(scope="fragment") para não fechar o modal (st.dialog) aberto.
@@ -233,7 +261,7 @@ def renderizar_gerenciador_estados(prefix, alvo):
             txt_p = p_atual["label"] if p_atual else "Selecionar País..."
 
             st.write("**País Pertencente**")
-            with st.popover(txt_p, icon="🌎", use_container_width=True):
+            with st.popover(txt_p, icon="🌎", use_container_width=True, key=f"{prefix}_pop_pais"):
                 renderizar_gerenciador_paises(prefix=f"{prefix}_nest_p", alvo=alvo)
 
             if st.button("Salvar Estado", type="primary", use_container_width=True, key=f"{prefix}_btn_save_e"):
@@ -310,7 +338,7 @@ def renderizar_gerenciador_cidades(prefix, alvo):
             txt_e = e_atual["label"] if e_atual else "Selecionar Estado..."
 
             st.write("**Estado Pertencente**")
-            with st.popover(txt_e, icon="📍", use_container_width=True):
+            with st.popover(txt_e, icon="📍", use_container_width=True, key=f"{prefix}_pop_estado"):
                 renderizar_gerenciador_estados(prefix=f"{prefix}_nest_e", alvo=alvo)
 
             if st.button("Salvar Cidade", type="primary", use_container_width=True, key=f"{prefix}_btn_save_cidade"):
@@ -330,25 +358,28 @@ def renderizar_gerenciador_cidades(prefix, alvo):
 
 def campos_endereco_contato(prefix, alvo):
     """Campos de endereço, localização e condição comercial comuns a Fornecedor e Transportadora."""
-    c_cep, c_log, c_num = st.columns([1.5, 3.5, 1])
+    c_cep, c_log, c_num, c_bairro = st.columns([1.2, 3, 0.8, 2])
     cep = c_cep.text_input("CEP", placeholder="00000-000", key=f"{prefix}_cep")
     logradouro = c_log.text_input("Logradouro", placeholder="Rua, avenida, alameda...", key=f"{prefix}_logradouro")
     numero = c_num.text_input("Número", placeholder="Nº", key=f"{prefix}_numero")
+    bairro = c_bairro.text_input("Bairro", placeholder="Bairro", key=f"{prefix}_bairro")
 
-    # Sem key: o valor acompanha a cidade selecionada no popover
+    # Key com o id da cidade: o valor acompanha a cidade selecionada no popover
     cidade_sel = st.session_state[f"cidade_{alvo}_compra"]
+    sufixo = f"{prefix}_{cidade_sel.get('id') if cidade_sel else 0}"
     c_pais, c_uf, c_cid, c_btn_geo = st.columns([1, 1, 1, 0.8])
-    pais = c_pais.text_input("País *", value=cidade_sel.get("pais", "Brasil") if cidade_sel else "Brasil")
-    estado = c_uf.text_input("Estado *", value=cidade_sel.get("estado", "") if cidade_sel else "", placeholder="Ex: São Paulo (SP)")
-    cidade = c_cid.text_input("Cidade *", value=cidade_sel.get("nome", "") if cidade_sel else "", placeholder="Selecione ou digite...")
+    pais = c_pais.text_input("País *", value=cidade_sel.get("pais", "Brasil") if cidade_sel else "Brasil",
+                             key=f"pais_{sufixo}")
+    estado = c_uf.text_input("Estado *", value=cidade_sel.get("estado", "") if cidade_sel else "",
+                             placeholder="Ex: São Paulo (SP)", key=f"estado_{sufixo}")
+    cidade = c_cid.text_input("Cidade *", value=cidade_sel.get("nome", "") if cidade_sel else "",
+                              placeholder="Selecione ou digite...", key=f"cidade_{sufixo}")
     with c_btn_geo:
         st.write("**Localização**")
-        with st.popover("Buscar/Criar", icon="🏙️", use_container_width=True):
+        with st.popover("Buscar/Criar", icon="🏙️", use_container_width=True, key=f"{prefix}_pop_cidade"):
             renderizar_gerenciador_cidades(prefix=f"{prefix}_geo", alvo=alvo)
 
-    c_comp, c_bairro = st.columns(2)
-    complemento = c_comp.text_input("Complemento", placeholder="Apto, bloco, sala...", key=f"{prefix}_complemento")
-    bairro = c_bairro.text_input("Bairro", placeholder="Bairro", key=f"{prefix}_bairro")
+    complemento = st.text_input("Complemento", placeholder="Apto, bloco, sala...", key=f"{prefix}_complemento")
 
     return {
         "cep": cep,
@@ -395,6 +426,275 @@ def limpar_localizacao(alvo):
         st.session_state[f"{campo}_{alvo}_compra"] = None
 
 
+def renderizar_gerenciador_condicoes(prefix, chave_estado):
+    """Seleciona ou cadastra uma condição de pagamento (com parcelas) dentro de um popover."""
+    tab_sel, tab_cad = st.tabs(["🔍 Selecionar Condição", "➕ Nova Condição"])
+
+    with tab_sel:
+        # Recarrega aqui: a lista do topo do script fica desatualizada nos reruns do modal
+        condicoes = CondicaoPagamentoService.listar_todas(apenas_ativos=True) or []
+        if not condicoes:
+            st.info("Nenhuma condição de pagamento ativa cadastrada.")
+        else:
+            df_c = pd.DataFrame([
+                {
+                    "Condição": c["condicao_pagamento"],
+                    "Parcelas": c.get("numero_parcelas") or 0,
+                    "Juros (%)": float(c.get("percentual_juros") or 0),
+                }
+                for c in condicoes
+            ])
+            event = st.dataframe(
+                df_c, use_container_width=True, hide_index=True,
+                selection_mode="single-row", on_select="rerun", key=f"{prefix}_grid_condicoes",
+            )
+            if event.selection.rows:
+                escolhida = condicoes[event.selection.rows[0]]
+                parcelas = CondicaoPagamentoService.listar_parcelas(escolhida["id"])
+                st.caption(
+                    " · ".join(
+                        f"{p['numero_parcela']}ª: {p['dias']} dias – {float(p['percentual']):.2f}% – "
+                        f"{p.get('forma_pagamento_nome') or ''}"
+                        for p in parcelas
+                    ) or "Sem parcelas cadastradas"
+                )
+                if st.button("🎯 Selecionar Condição", type="primary", use_container_width=True,
+                             key=f"{prefix}_btn_sel_cond"):
+                    st.session_state[chave_estado] = escolhida["condicao_pagamento"]
+                    st.rerun(scope="fragment")
+
+    with tab_cad:
+        formas = FormaPagamentoService.listar_todas(apenas_ativos=True) or []
+        opcoes_forma = [f["forma_pagamento"] for f in formas if f.get("forma_pagamento")] or ["BOLETO"]
+
+        nome = st.text_input("Condição de pagamento *", placeholder="Ex: 30/60/90 DIAS", key=f"{prefix}_cad_cond_nome")
+        c_j, c_m, c_d = st.columns(3)
+        juros = c_j.number_input("Juros (%)", min_value=0.0, step=0.01, format="%.2f", key=f"{prefix}_cad_cond_juros")
+        multa = c_m.number_input("Multa (%)", min_value=0.0, step=0.01, format="%.2f", key=f"{prefix}_cad_cond_multa")
+        desconto = c_d.number_input("Desconto (%)", min_value=0.0, step=0.01, format="%.2f", key=f"{prefix}_cad_cond_desc")
+
+        st.caption("Parcelas – a soma dos percentuais deve ser 100%.")
+        df_parc = st.data_editor(
+            pd.DataFrame([{"DIAS": 0, "FORMA DE PAGAMENTO": opcoes_forma[0], "% PARCELA": 100.0}]),
+            column_config={
+                "DIAS": st.column_config.NumberColumn("DIAS", min_value=0, step=1, required=True),
+                "FORMA DE PAGAMENTO": st.column_config.SelectboxColumn(
+                    "FORMA DE PAGAMENTO", options=opcoes_forma, required=True
+                ),
+                "% PARCELA": st.column_config.NumberColumn(
+                    "% PARCELA", min_value=0.0, max_value=100.0, step=0.01, format="%.2f", required=True
+                ),
+            },
+            num_rows="dynamic", hide_index=True, use_container_width=True, key=f"{prefix}_cad_cond_parcelas",
+        )
+        linhas = [
+            p for p in df_parc.to_dict("records")
+            if not (pd.isna(p.get("DIAS")) and pd.isna(p.get("% PARCELA")))
+        ]
+        soma = sum(0.0 if pd.isna(p.get("% PARCELA")) else float(p["% PARCELA"]) for p in linhas)
+        cor = "green" if abs(soma - 100.0) < 0.01 else "red"
+        st.markdown(f"<div style='text-align:right'>Total: <span style='color:{cor}'>{soma:.2f}%</span></div>",
+                    unsafe_allow_html=True)
+
+        if st.button("Salvar e Selecionar Condição", type="primary", use_container_width=True,
+                     key=f"{prefix}_btn_save_cond"):
+            if not nome.strip():
+                st.error("Informe o nome da condição de pagamento.")
+            elif not linhas:
+                st.error("Adicione pelo menos uma parcela.")
+            elif abs(soma - 100.0) >= 0.01:
+                st.error("A soma dos percentuais das parcelas deve ser 100%.")
+            else:
+                parcelas_payload = [
+                    {
+                        "numero_parcela": n + 1,
+                        "dias": 0 if pd.isna(p.get("DIAS")) else int(p["DIAS"]),
+                        "forma_pagamento_nome": p.get("FORMA DE PAGAMENTO") or "",
+                        "percentual": 0.0 if pd.isna(p.get("% PARCELA")) else float(p["% PARCELA"]),
+                    }
+                    for n, p in enumerate(linhas)
+                ]
+                nome_cond = nome.strip().upper()
+                ok, res = CondicaoPagamentoService.criar_com_parcelas(
+                    {
+                        "condicao_pagamento": nome_cond,
+                        "numero_parcelas": len(parcelas_payload),
+                        "percentual_juros": juros,
+                        "percentual_multa": multa,
+                        "percentual_desconto": desconto,
+                        "ativo": True,
+                    },
+                    parcelas_payload,
+                )
+                if ok:
+                    st.session_state[chave_estado] = nome_cond
+                    st.rerun(scope="fragment")
+                else:
+                    st.error(f"Erro ao salvar condição: {res}")
+
+
+def campo_condicao_pagamento(prefix, chave_estado, coluna):
+    """Campo somente-leitura da condição + popover para buscar/criar."""
+    with coluna:
+        c_val, c_btn = st.columns([2, 1])
+        c_val.text_input("Condição de Pagamento *", value=st.session_state[chave_estado] or "",
+                         placeholder="Selecione...", disabled=True, key=f"{prefix}_cond_exib_{st.session_state[chave_estado]}")
+        with c_btn:
+            st.write("**Condição**")
+            with st.popover("Buscar/Criar", icon="📋", use_container_width=True, key=f"{prefix}_pop_cond"):
+                renderizar_gerenciador_condicoes(prefix=f"{prefix}_cond", chave_estado=chave_estado)
+    return st.session_state[chave_estado]
+
+
+def renderizar_popover_simples(prefix, rotulo, listar_fn, criar_fn, campo, chave_estado, permite_vazio=False):
+    """Seleciona ou cadastra um registro simples (marca, categoria) dentro de um popover."""
+    tab_sel, tab_cad = st.tabs([f"🔍 Selecionar {rotulo}", f"➕ Nova {rotulo}"])
+
+    with tab_sel:
+        if permite_vazio and st.button(f"Sem {rotulo.lower()}", use_container_width=True, key=f"{prefix}_btn_vazio"):
+            st.session_state[chave_estado] = None
+            st.rerun(scope="fragment")
+
+        registros = listar_fn() or []
+        if not registros:
+            st.info(f"Nenhuma {rotulo.lower()} cadastrada.")
+        else:
+            df_r = pd.DataFrame([{"ID": r["id"], rotulo: r[campo]} for r in registros])
+            event = st.dataframe(
+                df_r, use_container_width=True, hide_index=True,
+                selection_mode="single-row", on_select="rerun", key=f"{prefix}_grid",
+            )
+            if event.selection.rows:
+                escolhido = registros[event.selection.rows[0]]
+                if st.button(f"🎯 Selecionar {rotulo}", type="primary", use_container_width=True,
+                             key=f"{prefix}_btn_sel"):
+                    st.session_state[chave_estado] = {"id": int(escolhido["id"]), "nome": escolhido[campo]}
+                    st.rerun(scope="fragment")
+
+    with tab_cad:
+        nome = st.text_input(f"Nome da {rotulo} *", key=f"{prefix}_cad_nome")
+        if st.button(f"Salvar e Selecionar {rotulo}", type="primary", use_container_width=True,
+                     key=f"{prefix}_btn_save"):
+            if not nome.strip():
+                st.error(f"Informe o nome da {rotulo.lower()}.")
+            else:
+                try:
+                    res = criar_fn(nome)
+                except Exception as e:
+                    res = None
+                    st.error(f"Erro ao salvar {rotulo.lower()}: {e}")
+                if res and res.data:
+                    novo = res.data[0]
+                    st.session_state[chave_estado] = {"id": int(novo["id"]), "nome": novo[campo]}
+                    st.rerun(scope="fragment")
+                elif res is not None:
+                    st.error(f"Erro ao salvar {rotulo.lower()}.")
+
+
+def renderizar_selecao_transportadora(prefix, ao_selecionar, rotulo_botao):
+    """Grade de transportadoras para seleção."""
+    exibir_desat = st.checkbox("👁️ Exibir desativadas", value=False, key=f"{prefix}_chk_t_desat")
+    transportadoras = transp_service.listar_todos(apenas_ativos=not exibir_desat)
+
+    if not transportadoras:
+        st.info("Nenhuma transportadora cadastrada.")
+        return
+
+    df_t = pd.DataFrame([
+        {
+            "ID": t["id"],
+            "Razão Social": t.get("razao_social", ""),
+            "Nome Fantasia": t.get("nome_fantasia", ""),
+            "CNPJ/CPF": t.get("cnpj_cpf", ""),
+            "Cidade": t.get("cidade", "N/A"),
+            "Status": "🟢 Ativo" if t.get("status", True) else "🔴 Desativado",
+        }
+        for t in transportadoras
+    ])
+    event = st.dataframe(
+        df_t, use_container_width=True, hide_index=True,
+        selection_mode="single-row", on_select="rerun", key=f"{prefix}_grid_transportadoras",
+    )
+
+    if event.selection.rows:
+        escolhida = df_t.iloc[event.selection.rows[0]]
+        if escolhida["Status"] == "🟢 Ativo":
+            if st.button(rotulo_botao, type="primary", use_container_width=True, key=f"{prefix}_btn_sel_transp"):
+                ao_selecionar({"id": int(escolhida["ID"]), "nome": escolhida["Razão Social"]})
+
+
+def renderizar_cadastro_transportadora(prefix, chave_veiculos, chave_condicao, ao_salvar):
+    """Formulário de cadastro rápido de transportadora."""
+    with st.container(border=True):
+        st.write("##### Cadastrar Nova Transportadora")
+
+        c_tipo, c_status = st.columns([2, 1])
+        t_tipo = c_tipo.selectbox("Tipo de Pessoa *", ["Jurídica", "Física"], key=f"{prefix}_tipo")
+        t_status = c_status.toggle("Ativo", value=True, key=f"{prefix}_status")
+
+        c_rs, c_nf = st.columns(2)
+        t_razao = c_rs.text_input("Razão Social *", key=f"{prefix}_razao")
+        t_fantasia = c_nf.text_input("Nome Fantasia", key=f"{prefix}_fantasia")
+
+        c_doc, c_ie = st.columns(2)
+        t_doc_label = "CNPJ *" if t_tipo == "Jurídica" else "CPF *"
+        t_doc_mask = "00.000.000/0000-00" if t_tipo == "Jurídica" else "000.000.000-00"
+        t_cnpj = c_doc.text_input(t_doc_label, placeholder=t_doc_mask, key=f"{prefix}_doc")
+        t_ie = c_ie.text_input("Inscrição Estadual", placeholder="Número da I.E.", key=f"{prefix}_ie")
+
+        t_endereco = campos_endereco_contato(prefix=prefix, alvo="transp")
+
+        c_cond, c_lim = st.columns([2, 1])
+        t_condicao = campo_condicao_pagamento(prefix, chave_condicao, c_cond)
+        t_limite = c_lim.number_input("Limite de Crédito (R$) *", min_value=0.0, value=0.0, step=100.0,
+                                      key=f"{prefix}_limite")
+
+        c_em, c_tel = st.columns(2)
+        t_emails = c_em.text_area("E-mails (um por linha)", placeholder="exemplo@dominio.com", key=f"{prefix}_emails")
+        t_telefones = c_tel.text_area("Telefones (um por linha)", placeholder="(00) 00000-0000", key=f"{prefix}_telefones")
+
+        st.write("**Veículos**")
+        renderizar_veiculos_selecionados(chave_veiculos, prefix=prefix)
+        with st.popover("Buscar / Criar Veículo", icon="🚚", use_container_width=True, key=f"{prefix}_pop_veiculo"):
+            renderizar_gerenciador_veiculos(veiculo_service, chave_veiculos, prefix=prefix)
+
+        t_obs = st.text_area("Observações", placeholder="Observações adicionais", key=f"{prefix}_obs")
+
+        if st.button("Salvar e Selecionar Transportadora", type="primary", use_container_width=True,
+                     key=f"{prefix}_btn_save_transp"):
+            if not (t_razao and t_cnpj and t_endereco["cidade"]):
+                st.error("Preencha Razão Social, CNPJ/CPF e Cidade.")
+            elif not t_condicao:
+                st.error("Selecione a Condição de Pagamento.")
+            else:
+                dados_t = {
+                    "tipo_pessoa": t_tipo,
+                    "status": t_status,
+                    "razao_social": t_razao,
+                    "nome_fantasia": t_fantasia,
+                    "cnpj_cpf": t_cnpj,
+                    "inscricao_estadual": t_ie,
+                    **t_endereco,
+                    "condicao_pagamento": t_condicao,
+                    "limite_credito": t_limite,
+                    "emails": lista_por_linha(t_emails),
+                    "telefones": lista_por_linha(t_telefones),
+                    "observacoes": t_obs,
+                }
+                sucesso, res = transp_service.criar(dados_t)
+
+                if sucesso:
+                    veiculo_service.sincronizar_transportadora(
+                        res["id"], [v["id"] for v in st.session_state[chave_veiculos]]
+                    )
+                    st.session_state[chave_veiculos] = []
+                    st.session_state[chave_condicao] = None
+                    limpar_localizacao("transp")
+                    ao_salvar({"id": res.get("id") if isinstance(res, dict) else None, "nome": t_razao})
+                else:
+                    st.error(f"Erro ao salvar transportadora: {res}")
+
+
 # --- MODAIS DE SELEÇÃO E CADASTRO RÁPIDO (FORNECEDOR, TRANSPORTADORA E PRODUTO) ---
 
 @st.dialog("Gerenciar Fornecedores", width="large")
@@ -415,7 +715,9 @@ def gerenciar_fornecedores_modal():
                     "Nome Fantasia": f.get("nome_fantasia", ""),
                     "CNPJ/CPF": f.get("cnpj_cpf", ""),
                     "Cidade": f.get("cidade", "N/A"),
+                    "Bairro": f.get("bairro") or "",
                     "Condição Pagamento": f.get("condicao_pagamento", ""),
+                    "Transportadora": f.get("transportadora") or "",
                     "Status": "🟢 Ativo" if f.get("status", True) else "🔴 Desativado",
                 }
                 for f in fornecedores
@@ -431,22 +733,23 @@ def gerenciar_fornecedores_modal():
             )
 
             if event.selection.rows:
-                idx = event.selection.rows[0]
-                escolhido = df_f.iloc[idx]
+                escolhido = fornecedores[event.selection.rows[0]]
 
-                if escolhido["Status"] == "🟢 Ativo":
+                if escolhido.get("status", True):
                     if st.button(
                         "🎯 Selecionar Fornecedor para Compra",
                         type="primary",
                         use_container_width=True,
                         key="btn_sel_forn_compra",
                     ):
-                        st.session_state.fornecedor_compra_selecionado = {
-                            "id": int(escolhido["ID"]),
-                            "nome": escolhido["Razão Social"],
-                            "cnpj_cpf": escolhido["CNPJ/CPF"],
-                            "condicao_pagamento": escolhido["Condição Pagamento"],
-                        }
+                        selecionar_fornecedor_compra({
+                            "id": int(escolhido["id"]),
+                            "nome": escolhido.get("razao_social", ""),
+                            "cnpj_cpf": escolhido.get("cnpj_cpf", ""),
+                            "condicao_pagamento": escolhido.get("condicao_pagamento", ""),
+                            "transportadora_id": escolhido.get("transportadora_id"),
+                            "transportadora": escolhido.get("transportadora"),
+                        })
                         st.rerun()
 
     with tab_cad:
@@ -469,14 +772,23 @@ def gerenciar_fornecedores_modal():
 
             f_endereco = campos_endereco_contato(prefix="cad_f", alvo="forn")
 
-            transportadoras_ativas = transp_service.listar_todos(apenas_ativos=True) or []
-            opcoes_transp = {"Sem transportadora": None}
-            opcoes_transp.update({t["razao_social"]: t["id"] for t in transportadoras_ativas if t.get("razao_social")})
-
-            c_cond, c_lim, c_transp = st.columns(3)
-            f_condicao = c_cond.selectbox("Condição de Pagamento *", options=opcoes_condicao_pagamento, key="cad_f_condicao")
+            c_cond, c_lim = st.columns([2, 1])
+            f_condicao = campo_condicao_pagamento("cad_f", "condicao_forn_compra", c_cond)
             f_limite = c_lim.number_input("Limite de Crédito (R$) *", min_value=0.0, value=0.0, step=100.0, key="cad_f_limite")
-            f_transp = c_transp.selectbox("Transportadora", options=list(opcoes_transp), key="cad_f_transp")
+
+            # Transportadora do fornecedor: selecionar ou cadastrar pelo popover
+            f_transp = st.session_state.transportadora_forn_compra
+            c_transp, c_btn_transp = st.columns([3, 1])
+            c_transp.text_input(
+                "Transportadora",
+                value=f_transp["nome"] if f_transp else "Sem transportadora",
+                disabled=True,
+                key=f"cad_f_transp_exib_{f_transp['id'] if f_transp else 0}",
+            )
+            with c_btn_transp:
+                st.write("**Transportadora**")
+                with st.popover("Buscar/Criar", icon="🚚", use_container_width=True, key="cad_f_pop_transp"):
+                    renderizar_transportadora_do_fornecedor()
 
             c_em, c_tel = st.columns(2)
             f_emails = c_em.text_area("E-mails (um por linha)", placeholder="exemplo@dominio.com", key="cad_f_emails")
@@ -485,7 +797,11 @@ def gerenciar_fornecedores_modal():
             f_obs = st.text_area("Observações", placeholder="Observações adicionais", key="cad_f_obs")
 
             if st.button("Salvar e Selecionar Fornecedor", type="primary", use_container_width=True, key="btn_save_forn_modal"):
-                if f_razao and f_cnpj and f_endereco["cidade"]:
+                if not (f_razao and f_cnpj and f_endereco["cidade"]):
+                    st.error("Preencha Razão Social, CNPJ/CPF e Cidade.")
+                elif not f_condicao:
+                    st.error("Selecione a Condição de Pagamento.")
+                else:
                     dados_f = {
                         "tipo_pessoa": f_tipo,
                         "status": f_status,
@@ -496,8 +812,8 @@ def gerenciar_fornecedores_modal():
                         **f_endereco,
                         "condicao_pagamento": f_condicao,
                         "limite_credito": f_limite,
-                        "transportadora": f_transp if opcoes_transp[f_transp] else "",
-                        "transportadora_id": opcoes_transp[f_transp],
+                        "transportadora": f_transp["nome"] if f_transp else "",
+                        "transportadora_id": f_transp["id"] if f_transp else None,
                         "emails": lista_por_linha(f_emails),
                         "telefones": lista_por_linha(f_telefones),
                         "observacoes": f_obs,
@@ -505,140 +821,56 @@ def gerenciar_fornecedores_modal():
                     sucesso, res = fornecedor_service.criar(dados_f)
 
                     if sucesso:
-                        st.success("Fornecedor cadastrado com sucesso!")
-                        st.session_state.fornecedor_compra_selecionado = {
+                        selecionar_fornecedor_compra({
                             "id": res.get("id") if isinstance(res, dict) else None,
                             "nome": f_razao,
                             "cnpj_cpf": f_cnpj,
                             "condicao_pagamento": f_condicao,
-                        }
+                            "transportadora_id": f_transp["id"] if f_transp else None,
+                            "transportadora": f_transp["nome"] if f_transp else None,
+                        })
                         limpar_localizacao("forn")
+                        st.session_state.condicao_forn_compra = None
+                        st.session_state.transportadora_forn_compra = None
                         st.rerun()
                     else:
                         st.error(f"Erro ao salvar fornecedor: {res}")
-                else:
-                    st.error("Preencha Razão Social, CNPJ/CPF e Cidade.")
+
+
+def renderizar_transportadora_do_fornecedor():
+    """Popover de transportadora dentro do cadastro rápido de fornecedor (não fecha o modal)."""
+
+    def definir(transp):
+        st.session_state.transportadora_forn_compra = transp
+        st.rerun(scope="fragment")
+
+    tab_sel, tab_cad = st.tabs(["🔍 Selecionar Transportadora", "➕ Nova Transportadora"])
+    with tab_sel:
+        if st.button("Sem transportadora", use_container_width=True, key="forn_transp_btn_vazio"):
+            definir(None)
+        renderizar_selecao_transportadora("forn_transp", definir, "🎯 Selecionar Transportadora")
+    with tab_cad:
+        renderizar_cadastro_transportadora(
+            "forn_transp", "veiculos_forn_transp_compra", "condicao_forn_transp_compra", definir
+        )
+
 
 @st.dialog("Gerenciar Transportadoras", width="large")
 def gerenciar_transportadoras_modal():
+    def definir(transp):
+        st.session_state.transportadora_compra_selecionada = transp
+        st.rerun()
+
     tab_sel, tab_cad = st.tabs(["🔍 Selecionar Transportadora", "➕ Nova Transportadora"])
 
     with tab_sel:
-        exibir_desat = st.checkbox("👁️ Exibir desativadas", value=False, key="chk_t_desat")
-        transportadoras = transp_service.listar_todos(apenas_ativos=not exibir_desat)
-
-        if not transportadoras:
-            st.info("Nenhuma transportadora cadastrada.")
-        else:
-            data = [
-                {
-                    "ID": t["id"],
-                    "Razão Social": t.get("razao_social", ""),
-                    "Nome Fantasia": t.get("nome_fantasia", ""),
-                    "CNPJ/CPF": t.get("cnpj_cpf", ""),
-                    "Cidade": t.get("cidade", "N/A"),
-                    "Status": "🟢 Ativo" if t.get("status", True) else "🔴 Desativado",
-                }
-                for t in transportadoras
-            ]
-            df_t = pd.DataFrame(data)
-            event = st.dataframe(
-                df_t,
-                use_container_width=True,
-                hide_index=True,
-                selection_mode="single-row",
-                on_select="rerun",
-                key="grid_transportadoras_modal",
-            )
-
-            if event.selection.rows:
-                idx = event.selection.rows[0]
-                escolhida = df_t.iloc[idx]
-
-                if escolhida["Status"] == "🟢 Ativo":
-                    if st.button(
-                        "🎯 Selecionar Transportadora para Compra",
-                        type="primary",
-                        use_container_width=True,
-                        key="btn_sel_transp_compra",
-                    ):
-                        st.session_state.transportadora_compra_selecionada = {
-                            "id": int(escolhida["ID"]),
-                            "nome": escolhida["Razão Social"],
-                        }
-                        st.rerun()
+        renderizar_selecao_transportadora("modal_transp", definir, "🎯 Selecionar Transportadora para Compra")
 
     with tab_cad:
-        with st.container(border=True):
-            st.write("##### Cadastrar Nova Transportadora")
+        renderizar_cadastro_transportadora(
+            "cad_t", "veiculos_modal_transp_compra", "condicao_transp_compra", definir
+        )
 
-            c_tipo, c_status = st.columns([2, 1])
-            t_tipo = c_tipo.selectbox("Tipo de Pessoa *", ["Jurídica", "Física"], key="cad_t_tipo")
-            t_status = c_status.toggle("Ativo", value=True, key="cad_t_status")
-
-            c_rs, c_nf = st.columns(2)
-            t_razao = c_rs.text_input("Razão Social *", key="cad_t_razao")
-            t_fantasia = c_nf.text_input("Nome Fantasia", key="cad_t_fantasia")
-
-            c_doc, c_ie = st.columns(2)
-            t_doc_label = "CNPJ *" if t_tipo == "Jurídica" else "CPF *"
-            t_doc_mask = "00.000.000/0000-00" if t_tipo == "Jurídica" else "000.000.000-00"
-            t_cnpj = c_doc.text_input(t_doc_label, placeholder=t_doc_mask, key="cad_t_doc")
-            t_ie = c_ie.text_input("Inscrição Estadual", placeholder="Número da I.E.", key="cad_t_ie")
-
-            t_endereco = campos_endereco_contato(prefix="cad_t", alvo="transp")
-
-            c_cond, c_lim = st.columns(2)
-            t_condicao = c_cond.selectbox("Condição de Pagamento *", options=opcoes_condicao_pagamento, key="cad_t_condicao")
-            t_limite = c_lim.number_input("Limite de Crédito (R$) *", min_value=0.0, value=0.0, step=100.0, key="cad_t_limite")
-
-            c_em, c_tel = st.columns(2)
-            t_emails = c_em.text_area("E-mails (um por linha)", placeholder="exemplo@dominio.com", key="cad_t_emails")
-            t_telefones = c_tel.text_area("Telefones (um por linha)", placeholder="(00) 00000-0000", key="cad_t_telefones")
-
-            st.write("**Veículos**")
-            renderizar_veiculos_selecionados("veiculos_modal_transp_compra", prefix="modal_transp_compra")
-            with st.popover("Buscar / Criar Veículo", icon="🚚", use_container_width=True):
-                renderizar_gerenciador_veiculos(
-                    veiculo_service, "veiculos_modal_transp_compra", prefix="modal_transp_compra"
-                )
-
-            t_obs = st.text_area("Observações", placeholder="Observações adicionais", key="cad_t_obs")
-
-            if st.button("Salvar e Selecionar Transportadora", type="primary", use_container_width=True, key="btn_save_transp_modal"):
-                if t_razao and t_cnpj and t_endereco["cidade"]:
-                    dados_t = {
-                        "tipo_pessoa": t_tipo,
-                        "status": t_status,
-                        "razao_social": t_razao,
-                        "nome_fantasia": t_fantasia,
-                        "cnpj_cpf": t_cnpj,
-                        "inscricao_estadual": t_ie,
-                        **t_endereco,
-                        "condicao_pagamento": t_condicao,
-                        "limite_credito": t_limite,
-                        "emails": lista_por_linha(t_emails),
-                        "telefones": lista_por_linha(t_telefones),
-                        "observacoes": t_obs,
-                    }
-                    sucesso, res = transp_service.criar(dados_t)
-
-                    if sucesso:
-                        veiculo_service.sincronizar_transportadora(
-                            res["id"], [v["id"] for v in st.session_state.veiculos_modal_transp_compra]
-                        )
-                        st.session_state.veiculos_modal_transp_compra = []
-                        st.success("Transportadora cadastrada com sucesso!")
-                        st.session_state.transportadora_compra_selecionada = {
-                            "id": res.get("id") if isinstance(res, dict) and res.get("id") else None,
-                            "nome": t_razao,
-                        }
-                        limpar_localizacao("transp")
-                        st.rerun()
-                    else:
-                        st.error(f"Erro ao salvar transportadora: {res}")
-                else:
-                    st.error("Preencha Razão Social, CNPJ/CPF e Cidade.")
 
 
 # --- FUNÇÕES DE CÁLCULO DA COMPRA ---
@@ -650,26 +882,29 @@ def moeda(valor):
 
 
 def calcular_itens(itens, custos_adicionais):
-    """Calcula total, rateio das despesas (frete + seguro + outras) e custo unitário de cada item."""
+    """Calcula rateio das despesas (frete + seguro + outras), custo unitário (6 casas) e total de cada item.
+
+    O desconto (desconto_valor) é por unidade e o total do item segue o custo unitário (custo × qtd).
+    """
     calculados = []
     for item in itens:
-        bruto = item["quantidade"] * item["preco_unitario"]
-        total = round(bruto - item["desconto_valor"], 2)
-        calculados.append({**item, "total_item": total})
+        liquido_unit = item["preco_unitario"] - item["desconto_valor"]
+        calculados.append({**item, "liquido": liquido_unit * item["quantidade"]})
 
-    total_produtos = sum(i["total_item"] for i in calculados)
+    total_liquido = sum(i["liquido"] for i in calculados)
     acumulado = 0.0
     for idx, item in enumerate(calculados):
-        if total_produtos <= 0:
+        if total_liquido <= 0:
             rateio = 0.0
         elif idx < len(calculados) - 1:
-            rateio = round(custos_adicionais * item["total_item"] / total_produtos, 2)
+            rateio = round(custos_adicionais * item["liquido"] / total_liquido, 2)
         else:
             # O último item absorve a diferença de centavos do rateio
             rateio = round(custos_adicionais - acumulado, 2)
         acumulado += rateio
         item["custo_rateio"] = rateio
-        item["custo_unitario"] = round((item["total_item"] + rateio) / item["quantidade"], 4)
+        item["custo_unitario"] = round((item["liquido"] + rateio) / item["quantidade"], 6)
+        item["total_item"] = round(item["custo_unitario"] * item["quantidade"], 2)
     return calculados
 
 
@@ -679,9 +914,8 @@ def adicionar_item(produto_id, produto, quantidade, preco_unitario, desconto_per
         if item["produto_id"] == produto_id:
             item["quantidade"] += quantidade
             item["preco_unitario"] = preco_unitario
-            bruto = item["quantidade"] * preco_unitario
             item["desconto_percentual"] = desconto_percentual
-            item["desconto_valor"] = round(bruto * desconto_percentual / 100, 2) if desconto_percentual else desconto_valor
+            item["desconto_valor"] = desconto_valor
             break
     else:
         st.session_state.itens_compra.append({
@@ -711,143 +945,207 @@ def limpar_compra():
 # --- POPUPS DE PRODUTO E CONDIÇÃO DE PAGAMENTO ---
 
 
+ABA_CONSULTAR_PRODUTO = "🔍 Consultar Produto"
+ABA_CADASTRAR_PRODUTO = "➕ Cadastrar Produto"
+
+
 @st.dialog("Consultar Produto", width="large")
 def consultar_produto_modal():
-    tab_cons, tab_cad = st.tabs(["🔍 Consultar Produto", "➕ Cadastrar Produto"])
+    # Produto recém-cadastrado: volta para a consulta já filtrada nele (antes de criar os widgets)
+    novo_id = st.session_state.produto_recem_criado
+    if novo_id:
+        st.session_state.produto_recem_criado = None
+        st.session_state.prod_tipo_busca = "Referência (ID)"
+        st.session_state.prod_termo_busca = str(novo_id)
+        st.session_state.tabs_produto_compra = ABA_CONSULTAR_PRODUTO
+        for k in ("cad_p_nome", "cad_p_cod_barras", "cad_p_desc"):
+            st.session_state[k] = ""
+        st.session_state.cad_p_vvenda = 0.0
+        st.success(f"Produto cadastrado (Ref. {novo_id}) e já disponível na consulta.")
+
+    tab_cons, tab_cad = st.tabs(
+        [ABA_CONSULTAR_PRODUTO, ABA_CADASTRAR_PRODUTO], key="tabs_produto_compra", on_change="rerun"
+    )
 
     with tab_cons:
-        c_tipo, c_busca = st.columns([1, 3])
-        tipo_busca = c_tipo.selectbox(
-            "Buscar por", ["Descrição", "Referência (ID)", "Código de barras"], key="prod_tipo_busca"
-        )
-        termo = c_busca.text_input("Pesquisa", placeholder="Digite para filtrar...", key="prod_termo_busca").strip()
-
-        produtos = ProdutoService.listar_todos(apenas_ativos=True) or []
-        if termo:
-            termo_l = termo.lower()
-            if tipo_busca == "Referência (ID)":
-                produtos = [p for p in produtos if str(p["id"]) == termo]
-            elif tipo_busca == "Código de barras":
-                produtos = [p for p in produtos if termo_l in str(p.get("codigo_barras") or "").lower()]
-            else:
-                produtos = [p for p in produtos if termo_l in str(p.get("produto") or "").lower()]
-
-        if not produtos:
-            st.info("Nenhum produto encontrado.")
-            return
-
-        df_prod = pd.DataFrame([
-            {
-                "Ref.": p["id"],
-                "Produto": p.get("produto", ""),
-                "Código de Barras": p.get("codigo_barras") or "",
-                "UN": (p.get("unidade_medida") or {}).get("sigla", ""),
-                "Estoque": p.get("quantidade_atual", 0),
-                "Valor Compra": float(p.get("valor_compra") or 0),
-            }
-            for p in produtos
-        ])
-        event = st.dataframe(
-            df_prod,
-            use_container_width=True,
-            hide_index=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="grid_consulta_produtos",
-            column_config={"Valor Compra": st.column_config.NumberColumn(format="R$ %.2f")},
-        )
-
-        if not event.selection.rows:
-            st.caption("Selecione um produto para ver os detalhes e adicionar à compra.")
-            return
-
-        prod = produtos[event.selection.rows[0]]
-
-        with st.container(border=True):
-            st.write(f"##### {prod['id']} – {prod.get('produto', '')}")
-            d1, d2, d3, d4 = st.columns(4)
-            d1.write(f"**Marca:** {(prod.get('marca') or {}).get('marca', 'N/A')}")
-            d2.write(f"**Categoria:** {(prod.get('categoria') or {}).get('categoria', 'N/A')}")
-            d3.write(f"**Unidade:** {(prod.get('unidade_medida') or {}).get('sigla', 'N/A')}")
-            d4.write(f"**Estoque atual:** {prod.get('quantidade_atual', 0)}")
-            d5, d6, d7 = st.columns([1, 1, 2])
-            d5.write(f"**Valor compra:** {moeda(prod.get('valor_compra'))}")
-            d6.write(f"**Valor venda:** {moeda(prod.get('valor_venda'))}")
-            d7.write(f"**Cód. barras:** {prod.get('codigo_barras') or '—'}")
-            if prod.get("descricao"):
-                st.caption(prod["descricao"])
-
-            c_qtd, c_preco, c_tipo_desc, c_desc = st.columns(4)
-            qtd = c_qtd.number_input("Quantidade *", min_value=1, value=1, step=1, key="prod_add_qtd")
-            preco = c_preco.number_input(
-                "Valor unitário (R$) *", min_value=0.0, value=float(prod.get("valor_compra") or 0),
-                step=0.01, format="%.2f", key=f"prod_add_preco_{prod['id']}",
-            )
-            tipo_desc = c_tipo_desc.selectbox("Desconto em", ["Percentual (%)", "Valor (R$)"], key="prod_add_tipo_desc")
-            desc = c_desc.number_input("Desconto", min_value=0.0, value=0.0, step=0.01, format="%.2f", key="prod_add_desc")
-
-            bruto = qtd * preco
-            if tipo_desc == "Percentual (%)":
-                desc_pct, desc_val = desc, round(bruto * desc / 100, 2)
-            else:
-                desc_val, desc_pct = desc, round(desc / bruto * 100, 2) if bruto else 0.0
-
-            st.markdown(
-                f"<div style='text-align:right'>Desconto: {desc_pct:.2f}% = {moeda(desc_val)} · "
-                f"<b>Total do item: {moeda(bruto - desc_val)}</b></div>",
-                unsafe_allow_html=True,
-            )
-
-            if st.button("➕ Adicionar à compra", type="primary", use_container_width=True, key="btn_add_prod_compra"):
-                if desc_val > bruto:
-                    st.error("O desconto não pode ser maior que o valor do item.")
-                else:
-                    adicionar_item(int(prod["id"]), prod.get("produto", ""), int(qtd), float(preco), desc_pct, desc_val)
-                    st.rerun()
+        renderizar_consulta_produto()
 
     with tab_cad:
-        with st.container(border=True):
-            st.write("##### Cadastrar Novo Produto")
+        renderizar_cadastro_produto()
 
-            marcas = MarcaService.listar_todas() or []
-            unidades = UnidadeMedidaService.listar_todas() or []
-            categorias = CategoriaService.listar_todas() or []
-            op_marca = {m["marca"]: m["id"] for m in marcas}
-            op_un = {f"{u['unidade_medida']} ({u['sigla']})": u["id"] for u in unidades}
-            op_cat = {"Sem categoria": None, **{c["categoria"]: c["id"] for c in categorias}}
 
-            c_nome, c_cod = st.columns([2, 1])
-            p_nome = c_nome.text_input("Nome do Produto *", key="cad_p_nome")
-            p_cod_barras = c_cod.text_input("Código de Barras", key="cad_p_cod_barras")
+def renderizar_consulta_produto():
+    c_tipo, c_busca = st.columns([1, 3])
+    tipo_busca = c_tipo.selectbox(
+        "Buscar por", ["Descrição", "Referência (ID)", "Código de barras"], key="prod_tipo_busca"
+    )
+    termo = c_busca.text_input("Pesquisa", placeholder="Digite para filtrar...", key="prod_termo_busca").strip()
 
-            c_marca, c_um, c_cat = st.columns(3)
-            p_marca = c_marca.selectbox("Marca *", list(op_marca), key="cad_p_marca")
-            p_um = c_um.selectbox("Unidade de Medida *", list(op_un), key="cad_p_um")
-            p_cat = c_cat.selectbox("Categoria", list(op_cat), key="cad_p_cat")
+    produtos = ProdutoService.listar_todos(apenas_ativos=True) or []
+    if termo:
+        termo_l = termo.lower()
+        if tipo_busca == "Referência (ID)":
+            produtos = [p for p in produtos if str(p["id"]) == termo]
+        elif tipo_busca == "Código de barras":
+            produtos = [p for p in produtos if termo_l in str(p.get("codigo_barras") or "").lower()]
+        else:
+            produtos = [p for p in produtos if termo_l in str(p.get("produto") or "").lower()]
 
-            c_vvenda, c_info_custo = st.columns(2)
-            p_val_venda = c_vvenda.number_input("Valor de Venda (R$) *", min_value=0.0, step=0.01, format="%.2f", key="cad_p_vvenda")
-            c_info_custo.caption("O custo do produto é preenchido automaticamente ao lançar a compra.")
+    if not produtos:
+        st.info("Nenhum produto encontrado.")
+        return
 
-            p_desc = st.text_area("Descrição", key="cad_p_desc")
+    df_prod = pd.DataFrame([
+        {
+            "Ref.": p["id"],
+            "Produto": p.get("produto", ""),
+            "Código de Barras": p.get("codigo_barras") or "",
+            "UN": (p.get("unidade_medida") or {}).get("sigla", ""),
+            "Estoque": p.get("quantidade_atual", 0),
+            "Valor Compra": float(p.get("valor_compra") or 0),
+        }
+        for p in produtos
+    ])
+    event = st.dataframe(
+        df_prod,
+        use_container_width=True,
+        hide_index=True,
+        selection_mode="single-row",
+        on_select="rerun",
+        key="grid_consulta_produtos",
+        column_config={"Valor Compra": st.column_config.NumberColumn(format="R$ %.2f")},
+    )
 
-            if st.button("Salvar Produto", type="primary", use_container_width=True, key="btn_save_prod_modal"):
-                if not p_nome or not p_marca or not p_um:
-                    st.error("Informe Nome, Marca e Unidade de Medida.")
+    if event.selection.rows:
+        prod = produtos[event.selection.rows[0]]
+    elif termo and len(produtos) == 1:
+        # Filtro com um único resultado (ex.: produto recém-cadastrado): já mostra para adicionar
+        prod = produtos[0]
+    else:
+        st.caption("Selecione um produto para ver os detalhes e adicionar à compra.")
+        return
+
+    with st.container(border=True):
+        st.write(f"##### {prod['id']} – {prod.get('produto', '')}")
+        d1, d2, d3, d4 = st.columns(4)
+        d1.write(f"**Marca:** {(prod.get('marca') or {}).get('marca', 'N/A')}")
+        d2.write(f"**Categoria:** {(prod.get('categoria') or {}).get('categoria', 'N/A')}")
+        d3.write(f"**Unidade:** {(prod.get('unidade_medida') or {}).get('sigla', 'N/A')}")
+        d4.write(f"**Estoque atual:** {prod.get('quantidade_atual', 0)}")
+        d5, d6, d7 = st.columns([1, 1, 2])
+        d5.write(f"**Valor compra:** {moeda(prod.get('valor_compra'))}")
+        d6.write(f"**Valor venda:** {moeda(prod.get('valor_venda'))}")
+        d7.write(f"**Cód. barras:** {prod.get('codigo_barras') or '—'}")
+        if prod.get("descricao"):
+            st.caption(prod["descricao"])
+
+        # Keys com o id do produto: cada produto tem seus próprios campos (desconto começa em 0)
+        c_qtd, c_preco, c_tipo_desc, c_desc = st.columns(4)
+        qtd = c_qtd.number_input("Quantidade *", min_value=1, value=1, step=1, key=f"prod_add_qtd_{prod['id']}")
+        preco = c_preco.number_input(
+            "Valor unitário (R$) *", min_value=0.0, value=float(prod.get("valor_compra") or 0),
+            step=0.01, format="%.2f", key=f"prod_add_preco_{prod['id']}",
+        )
+        tipo_desc = c_tipo_desc.selectbox(
+            "Desconto em", ["Percentual (%)", "Valor (R$)"], key=f"prod_add_tipo_desc_{prod['id']}"
+        )
+        desc = c_desc.number_input(
+            "Desconto por unidade", min_value=0.0, value=0.0, step=0.01, format="%.2f",
+            key=f"prod_add_desc_{prod['id']}",
+        )
+
+        # O desconto vale para cada unidade
+        if tipo_desc == "Percentual (%)":
+            desc_pct, desc_val = desc, round(preco * desc / 100, 6)
+        else:
+            desc_val, desc_pct = desc, round(desc / preco * 100, 2) if preco else 0.0
+        custo_unit = round(preco - desc_val, 6)
+
+        st.markdown(
+            f"<div style='text-align:right'>Desconto: {desc_pct:.2f}% = {moeda(desc_val)} por unidade · "
+            f"Custo unit.: R$ {custo_unit:.6f} · "
+            f"<b>Total do item: {moeda(round(custo_unit * qtd, 2))}</b></div>",
+            unsafe_allow_html=True,
+        )
+
+        if st.button("➕ Adicionar à compra", type="primary", use_container_width=True, key="btn_add_prod_compra"):
+            if desc_val > preco:
+                st.error("O desconto não pode ser maior que o valor unitário.")
+            else:
+                adicionar_item(int(prod["id"]), prod.get("produto", ""), int(qtd), float(preco), desc_pct, desc_val)
+                st.rerun()
+
+
+def campo_popover_simples(coluna, prefix, rotulo, obrigatorio, listar_fn, criar_fn, campo, chave_estado):
+    """Campo somente-leitura + popover para buscar/criar marca ou categoria."""
+    sel = st.session_state[chave_estado]
+    with coluna:
+        c_val, c_btn = st.columns([2, 1])
+        c_val.text_input(
+            f"{rotulo} *" if obrigatorio else rotulo,
+            value=sel["nome"] if sel else ("" if obrigatorio else f"Sem {rotulo.lower()}"),
+            placeholder="Selecione...",
+            disabled=True,
+            key=f"{prefix}_exib_{sel['id'] if sel else 0}",
+        )
+        with c_btn:
+            st.write(f"**{rotulo}**")
+            with st.popover("Buscar/Criar", use_container_width=True, key=f"{prefix}_pop"):
+                renderizar_popover_simples(
+                    prefix, rotulo, listar_fn, criar_fn, campo, chave_estado, permite_vazio=not obrigatorio
+                )
+    return sel
+
+
+def renderizar_cadastro_produto():
+    with st.container(border=True):
+        st.write("##### Cadastrar Novo Produto")
+
+        unidades = UnidadeMedidaService.listar_todas() or []
+        op_un = {f"{u['unidade_medida']} ({u['sigla']})": u["id"] for u in unidades}
+
+        c_nome, c_cod = st.columns([2, 1])
+        p_nome = c_nome.text_input("Nome do Produto *", key="cad_p_nome")
+        p_cod_barras = c_cod.text_input("Código de Barras", key="cad_p_cod_barras")
+
+        c_marca, c_cat = st.columns(2)
+        p_marca = campo_popover_simples(
+            c_marca, "cad_p_marca", "Marca", True,
+            MarcaService.listar_todas, MarcaService.criar, "marca", "marca_prod_compra",
+        )
+        p_cat = campo_popover_simples(
+            c_cat, "cad_p_cat", "Categoria", False,
+            CategoriaService.listar_todas, CategoriaService.criar, "categoria", "categoria_prod_compra",
+        )
+
+        c_um, c_vvenda = st.columns(2)
+        p_um = c_um.selectbox("Unidade de Medida *", list(op_un), key="cad_p_um")
+        p_val_venda = c_vvenda.number_input("Valor de Venda (R$) *", min_value=0.0, step=0.01, format="%.2f", key="cad_p_vvenda")
+        st.caption("O custo do produto é preenchido automaticamente ao lançar a compra.")
+
+        p_desc = st.text_area("Descrição", key="cad_p_desc")
+
+        if st.button("Salvar Produto", type="primary", use_container_width=True, key="btn_save_prod_modal"):
+            if not p_nome or not p_marca or not p_um:
+                st.error("Informe Nome, Marca e Unidade de Medida.")
+            else:
+                res = ProdutoService.criar({
+                    "produto": p_nome,
+                    "codigo_barras": p_cod_barras,
+                    "valor_venda": p_val_venda,
+                    "marca_id": p_marca["id"],
+                    "unidade_medida_id": op_un[p_um],
+                    "categoria_id": p_cat["id"] if p_cat else None,
+                    "descricao": p_desc,
+                })
+                if res and res.data:
+                    st.session_state.produto_recem_criado = res.data[0]["id"]
+                    st.session_state.marca_prod_compra = None
+                    st.session_state.categoria_prod_compra = None
+                    st.rerun(scope="fragment")
                 else:
-                    res = ProdutoService.criar({
-                        "produto": p_nome,
-                        "codigo_barras": p_cod_barras,
-                        "valor_venda": p_val_venda,
-                        "marca_id": op_marca[p_marca],
-                        "unidade_medida_id": op_un[p_um],
-                        "categoria_id": op_cat[p_cat],
-                        "descricao": p_desc,
-                    })
-                    if res and res.data:
-                        st.success(f"Produto cadastrado (Ref. {res.data[0]['id']}). Consulte-o na aba ao lado para adicionar.")
-                    else:
-                        st.error("Erro ao salvar produto no banco de dados.")
+                    st.error("Erro ao salvar produto no banco de dados.")
+
 
 
 @st.dialog("Condição de Pagamento", width="large")
@@ -956,7 +1254,7 @@ with tab_lista:
                         "quantidade": "Qtd",
                         "preco_unitario": st.column_config.NumberColumn("Valor unit.", format="R$ %.2f"),
                         "custo_rateio": st.column_config.NumberColumn("Custo (rateio)", format="R$ %.2f"),
-                        "custo_unitario": st.column_config.NumberColumn("Custo unit.", format="R$ %.4f"),
+                        "custo_unitario": st.column_config.NumberColumn("Custo unit.", format="R$ %.6f"),
                         "desconto_percentual": st.column_config.NumberColumn("Desc. %", format="%.2f%%"),
                         "desconto_valor": st.column_config.NumberColumn("Desc. R$", format="R$ %.2f"),
                         "total_item": st.column_config.NumberColumn("Total", format="R$ %.2f"),
@@ -1069,8 +1367,9 @@ def renderizar_nova_compra():
             else:
                 st.session_state.nota_confirmada = True
                 # Condição de pagamento do fornecedor vem pré-selecionada
-                if forn_sel.get("condicao_pagamento") in condicoes_por_nome:
-                    st.session_state.condicao_compra_sel = forn_sel["condicao_pagamento"]
+                st.session_state.condicao_compra_sel = (
+                    condicao_do_fornecedor(forn_sel) or st.session_state.condicao_compra_sel
+                )
                 st.rerun()
         st.info("Confirme os dados da nota para liberar os produtos.")
         return
@@ -1089,7 +1388,12 @@ def renderizar_nova_compra():
     outras_despesas = float(st.session_state.get(f"inp_outras_{v}", 0.0) or 0.0)
     custos_adicionais = round(frete + seguro + outras_despesas, 2)
 
-    acoes["prod"] = st.button("📦 Consultar / Adicionar Produto")
+    # Com parcelas geradas os produtos ficam bloqueados até as parcelas serem limpas
+    parcelas_geradas = bool(st.session_state.parcelas_compra)
+
+    acoes["prod"] = st.button("📦 Consultar / Adicionar Produto", disabled=parcelas_geradas)
+    if parcelas_geradas:
+        st.caption("Limpe as parcelas para alterar os produtos.")
 
     itens = calcular_itens(st.session_state.itens_compra, custos_adicionais)
 
@@ -1109,33 +1413,35 @@ def renderizar_nova_compra():
                 "preco_unitario": st.column_config.NumberColumn("Valor unit. (R$)", min_value=0.0, format="R$ %.2f"),
                 "custo_rateio": st.column_config.NumberColumn("Custo (R$)", disabled=True, format="R$ %.2f",
                                                               help="Rateio de frete + seguro + outras despesas"),
-                "custo_unitario": st.column_config.NumberColumn("Custo unit. (R$)", disabled=True, format="R$ %.4f",
-                                                                help="(Total do item + custo) / quantidade"),
+                "custo_unitario": st.column_config.NumberColumn("Custo unit. (R$)", disabled=True, format="R$ %.6f",
+                                                                help="Valor unit. - desconto unit. + custo / quantidade"),
                 "desconto_percentual": st.column_config.NumberColumn("Desc. %", min_value=0.0, max_value=100.0, format="%.2f"),
-                "desconto_valor": st.column_config.NumberColumn("Desc. R$", min_value=0.0, format="R$ %.2f"),
-                "total_item": st.column_config.NumberColumn("Total (R$)", disabled=True, format="R$ %.2f"),
+                "desconto_valor": st.column_config.NumberColumn("Desc. unit. R$", min_value=0.0, format="R$ %.2f",
+                                                                help="Desconto por unidade"),
+                "total_item": st.column_config.NumberColumn("Total (R$)", disabled=True, format="R$ %.2f",
+                                                            help="Custo unit. × quantidade"),
             },
             num_rows="fixed",
             hide_index=True,
             use_container_width=True,
+            disabled=parcelas_geradas,
             key=f"editor_itens_{st.session_state.versao_editor_itens}",
         )
 
-        # Sincroniza desconto % <-> R$ conforme o campo que foi alterado
+        # Sincroniza desconto % <-> R$ (por unidade) conforme o campo que foi alterado
         novos, mudou = [], False
         for anterior, linha in zip(st.session_state.itens_compra, edited.to_dict("records")):
             qtd = int(linha["quantidade"] or 1)
             preco = float(linha["preco_unitario"] or 0)
             pct = float(linha["desconto_percentual"] or 0)
             val = float(linha["desconto_valor"] or 0)
-            bruto = qtd * preco
             if pct != anterior["desconto_percentual"]:
-                val = round(bruto * pct / 100, 2)
+                val = round(preco * pct / 100, 6)
             elif val != anterior["desconto_valor"]:
-                pct = round(val / bruto * 100, 2) if bruto else 0.0
-            elif qtd != anterior["quantidade"] or preco != anterior["preco_unitario"]:
-                val = round(bruto * pct / 100, 2)
-            val = min(val, round(bruto, 2))
+                pct = round(val / preco * 100, 2) if preco else 0.0
+            elif preco != anterior["preco_unitario"]:
+                val = round(preco * pct / 100, 6)
+            val = min(val, preco)
             novo = {**anterior, "quantidade": qtd, "preco_unitario": preco,
                     "desconto_percentual": pct, "desconto_valor": val}
             mudou = mudou or novo != anterior
@@ -1151,14 +1457,15 @@ def renderizar_nova_compra():
             format_func=lambda i: f"{itens[i]['produto_id']} – {itens[i]['produto']}",
             key="sel_item_remover", label_visibility="collapsed",
         )
-        if c_btn_rem.button("🗑️ Remover", use_container_width=True):
+        if c_btn_rem.button("🗑️ Remover", use_container_width=True, disabled=parcelas_geradas):
             st.session_state.itens_compra.pop(item_remover)
             st.session_state.versao_editor_itens += 1
             st.rerun()
 
     total_bruto = sum(i["quantidade"] * i["preco_unitario"] for i in itens)
-    desconto_total = round(sum(i["desconto_valor"] for i in itens), 2)
-    total_produtos = round(sum(i["total_item"] for i in itens), 2)
+    desconto_total = round(sum(i["desconto_valor"] * i["quantidade"] for i in itens), 2)
+    # Total dos produtos sem o rateio (valor - desconto) × qtd; as despesas entram no total da compra
+    total_produtos = round(sum(i["liquido"] for i in itens), 2)
     total_compra = round(total_produtos + custos_adicionais, 2)
 
     st.markdown(
@@ -1194,12 +1501,12 @@ def renderizar_nova_compra():
     st.markdown(
         "<table style='width:100%;text-align:right'>"
         "<tr><th style='text-align:right'>Total bruto</th><th style='text-align:right'>Descontos</th>"
-        "<th style='text-align:right'>Total produtos</th><th style='text-align:right'>Frete</th>"
-        "<th style='text-align:right'>Seguro</th><th style='text-align:right'>Outras despesas</th>"
+        "<th style='text-align:right'>Frete</th><th style='text-align:right'>Seguro</th>"
+        "<th style='text-align:right'>Outras despesas</th><th style='text-align:right'>Total produtos</th>"
         "<th style='text-align:right'>Total da compra</th></tr>"
-        f"<tr><td>{moeda(total_bruto)}</td><td>- {moeda(desconto_total)}</td><td>{moeda(total_produtos)}</td>"
+        f"<tr><td>{moeda(total_bruto)}</td><td>- {moeda(desconto_total)}</td>"
         f"<td>{moeda(frete)}</td><td>{moeda(seguro)}</td><td>{moeda(outras_despesas)}</td>"
-        f"<td><b>{moeda(total_compra)}</b></td></tr></table>",
+        f"<td>{moeda(total_produtos)}</td><td><b>{moeda(total_compra)}</b></td></tr></table>",
         unsafe_allow_html=True,
     )
 
@@ -1208,7 +1515,14 @@ def renderizar_nova_compra():
     # ---------------- 5. CONDIÇÃO DE PAGAMENTO ----------------
     st.subheader("5. Condição de pagamento")
 
+    if not st.session_state.condicao_compra_sel:
+        st.session_state.condicao_compra_sel = condicao_do_fornecedor(forn_sel)
     cond_nome = st.session_state.condicao_compra_sel
+    if not cond_nome and forn_sel.get("condicao_pagamento"):
+        st.warning(
+            f"A condição do fornecedor ({forn_sel['condicao_pagamento']}) não está cadastrada ou está "
+            "desativada. Selecione uma condição."
+        )
     col_cond, col_btn_cond = st.columns([4, 1])
     with col_cond:
         st.text_input("Condição de pagamento *", value=cond_nome or "", placeholder="Selecione a condição...",
@@ -1253,6 +1567,10 @@ def renderizar_nova_compra():
                 "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
             },
         )
+        if st.button("Limpar parcelas"):
+            st.session_state.parcelas_compra = []
+            st.session_state.assinatura_parcelas = None
+            st.rerun()
 
     st.markdown("---")
 
@@ -1291,8 +1609,12 @@ def renderizar_nova_compra():
             "forma_pagamento": parcelas[0].get("Forma") if parcelas else None,
         }
         itens_payload = [
-            {k: i[k] for k in ("produto_id", "produto", "quantidade", "preco_unitario", "desconto_percentual",
-                               "desconto_valor", "total_item", "custo_rateio", "custo_unitario")}
+            {
+                **{k: i[k] for k in ("produto_id", "produto", "quantidade", "preco_unitario", "desconto_percentual",
+                                     "total_item", "custo_rateio", "custo_unitario")},
+                # No banco o desconto é gravado pelo total do item
+                "desconto_valor": round(i["desconto_valor"] * i["quantidade"], 2),
+            }
             for i in itens
         ]
         parcelas_payload = [
